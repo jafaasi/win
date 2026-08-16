@@ -86,10 +86,14 @@ function App() {
       // 2. Transmit to Python Deep Learning Engine
       const isInit = lastSyncTime === null;
       const url = `${BACKEND_URL}${isInit ? '?init=true' : ''}`;
+      const payload = {
+        draws: clientDraws,
+        currentLevel: currentLevel
+      };
       const response = await fetch(url, {
-        method: clientDraws.length > 0 ? 'POST' : 'GET',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: clientDraws.length > 0 ? JSON.stringify(clientDraws) : undefined
+        body: JSON.stringify(payload)
       });
       
       const data = response.ok ? await response.json() : null;
@@ -132,10 +136,11 @@ function App() {
               return log;
             });
 
-            // Derive active Martingale level directly from the latest verified outcome
+            // Derive active Martingale level directly from the latest verified outcome (Strict 3-Level Max)
             if (syncedLogs.length > 0) {
               const latestLog = syncedLogs[0];
-              const nextLvl = latestLog.isWin ? 1 : ((latestLog.level < 3) ? latestLog.level + 1 : 1);
+              const prevLvl = Number(latestLog.level) || 1;
+              const nextLvl = latestLog.isWin ? 1 : (prevLvl < 3 ? prevLvl + 1 : 1);
               setCurrentLevel(nextLvl);
             }
 
