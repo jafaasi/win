@@ -119,15 +119,18 @@ function App() {
             incomingLogs.reverse().forEach((log) => {
               if (!existingIssues.has(log.issue)) {
                 
-                // Track martingale
+                // Track martingale: the bet level is the CURRENT level
+                const betLevel = updatedLvl;
+                log.level = betLevel;
+                
+                // Determine the NEXT level based on this log's outcome
                 if (log.isWin) {
                   updatedLvl = 1;
                 } else {
-                  updatedLvl = updatedLvl < 3 ? updatedLvl + 1 : 1;
+                  updatedLvl = betLevel < 3 ? betLevel + 1 : 1;
                 }
                 
-                log.level = updatedLvl;
-                log.id = `${log.issue}-${Date.now()}`;
+                log.id = log.id || `${log.issue}-${Date.now()}`;
                 
                 updatedLogs.unshift(log);
                 existingIssues.add(log.issue);

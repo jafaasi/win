@@ -282,6 +282,12 @@ def exploit_all_loopholes(history):
     else:
         target_digit = 7 if winner == "Big" else 2
 
+    # Enforce size constraints
+    if winner == "Big" and target_digit < 5:
+        target_digit = 7
+    elif winner == "Small" and target_digit >= 5:
+        target_digit = 2
+
     # Safety hedge
     hedge_digit = 9 if winner == "Big" else 0
     if hedge_digit == target_digit:
@@ -360,6 +366,7 @@ def compute_state(client_draws=None, init=False):
                 "targetBS": targBS,
                 "targetNum": targNum,
                 "actualBS": actBS,
+                "actualNum": n,
                 "isWin": is_w,
                 "level": 1 if is_w else 2,
                 "pattern": historical_ai["patternName"],
