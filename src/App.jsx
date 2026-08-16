@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import PredictionDisplay from './components/PredictionDisplay';
 import HistoryLog from './components/HistoryLog';
 
-// Fallback to localhost if environment variable is not set
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080/api/state';
+// Use relative /api/state so it connects seamlessly on Vercel
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '/api/state';
 
 function App() {
   const [history, setHistory] = useState([]);

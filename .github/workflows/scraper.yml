@@ -1,0 +1,39 @@
+name: 24/7 WinGo AI Worker
+
+on:
+  schedule:
+    # Run every 5 minutes
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape-and-learn:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Background Scraper & AI
+        env:
+          DATABASE_URL: "postgresql://postgres:rodrE0%2Dfyvnov%2Dgyvzuz@db.zyryxnifpduwsulglhdq.supabase.co:5432/postgres"
+        run: |
+          python -c "
+          import sys
+          sys.path.append('.')
+          from api.index import SessionLocal, sync_latest_draws, run_ai_prediction
+          db = SessionLocal()
+          print('Syncing draws to Supabase...')
+          sync_latest_draws(db)
+          ai = run_ai_prediction(db)
+          print('AI Prediction:', ai)
+          db.close()
+          "
