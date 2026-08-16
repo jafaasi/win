@@ -1,31 +1,53 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional, Union
 import numpy as np
-from typing import Sequence, Dict, Any
+
+@dataclass
+class ModelMetadata:
+    name: str
+    version: str
+    parameters: Dict[str, Any] = field(default_factory=dict)
+    parent_version: Optional[str] = None
+    generation: int = 1
 
 class SequenceModel(ABC):
-    """Abstract Base Class for all EVOSEQ Sequence Intelligence Models."""
+    """Universal contract for all EVOSEQ Sequence Intelligence models."""
+    metadata: ModelMetadata
 
     @abstractmethod
-    def fit(self, sequence: Sequence[int]) -> "SequenceModel":
-        """Fits the model parameters on a batch sequence history."""
+    def fit(
+        self,
+        X: Union[np.ndarray, list],
+        y: Optional[Union[np.ndarray, list]] = None,
+    ) -> "SequenceModel":
+        """Fits model parameters on input features/sequence X and optional targets y."""
         pass
 
     @abstractmethod
-    def update(self, sequence: Sequence[int]) -> "SequenceModel":
-        """Incrementally adapts model parameters on incoming observations."""
+    def update(
+        self,
+        X: Union[np.ndarray, list],
+        y: Optional[Union[np.ndarray, list]] = None,
+    ) -> "SequenceModel":
+        """Incrementally updates model parameters on new observations."""
         pass
 
     @abstractmethod
-    def predict_proba(self, context: Sequence[int]) -> np.ndarray:
-        """Returns the 10-class probability distribution vector for the next step."""
+    def predict_proba(
+        self,
+        X: Union[np.ndarray, list],
+    ) -> np.ndarray:
+        """Returns 10-class probability distribution vector for the next step [P(0), ..., P(9)]."""
         pass
 
     @abstractmethod
     def save(self, path: str) -> None:
-        """Serializes model parameters to disk."""
+        """Serializes model weights and parameters to disk."""
         pass
 
+    @classmethod
     @abstractmethod
-    def load(self, path: str) -> "SequenceModel":
-        """Deserializes model parameters from disk."""
+    def load(cls, path: str) -> "SequenceModel":
+        """Deserializes model instance from disk."""
         pass

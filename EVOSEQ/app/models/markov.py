@@ -1,17 +1,27 @@
+from typing import Sequence, Dict, Tuple, Optional, Union
 import numpy as np
-from typing import Sequence, Dict, Tuple
-from .base import SequenceModel
+from .base import SequenceModel, ModelMetadata
 
 class MarkovModel(SequenceModel):
     """Discrete Order-N Markov Chain Predictor with Laplace additive smoothing."""
 
-    def __init__(self, order: int = 3, smoothing: float = 1.0):
+    def __init__(
+        self,
+        order: int = 3,
+        smoothing: float = 1.0,
+        version: str = "markov-v1"
+    ):
         self.order = order
         self.smoothing = smoothing
         self.counts: Dict[Tuple[int, ...], np.ndarray] = {}
+        self.metadata = ModelMetadata(
+            name="Markov",
+            version=version,
+            parameters={"order": order, "smoothing": smoothing}
+        )
 
-    def fit(self, sequence: Sequence[int]) -> "MarkovModel":
-        sequence = list(sequence)
+    def fit(self, X: Union[np.ndarray, list], y: Optional[Union[np.ndarray, list]] = None) -> "MarkovModel":
+        sequence = list(X)
         self.counts = {}
         if len(sequence) <= self.order:
             return self
@@ -24,8 +34,8 @@ class MarkovModel(SequenceModel):
             self.counts[context][target] += 1.0
         return self
 
-    def update(self, sequence: Sequence[int]) -> "MarkovModel":
-        sequence = list(sequence)
+    def update(self, X: Union[np.ndarray, list], y: Optional[Union[np.ndarray, list]] = None) -> "MarkovModel":
+        sequence = list(X)
         if len(sequence) <= self.order:
             return self
             
@@ -37,7 +47,8 @@ class MarkovModel(SequenceModel):
             self.counts[context][target] += 1.0
         return self
 
-    def predict_proba(self, context: Sequence[int]) -> np.ndarray:
+    def predict_proba(self, X: Union[np.ndarray, list]) -> np.ndarray:
+        context = list(X)
         if len(context) < self.order:
             return np.full(10, 0.1, dtype=np.float64)
             
@@ -50,8 +61,18 @@ class MarkovModel(SequenceModel):
         return probabilities / total
 
     def save(self, path: str) -> None:
-        np.save(path, self.counts)
+        save_data = {
+            "order": self.order,
+            "smoothing": self.smoothing,
+            "counts": self.counts,
+            "metadata": self.metadata
+        }
+        np.save(path, save_data)
 
-    def load(self, path: str) -> "MarkovModel":
-        self.counts = np.load(path, allow_pickle=True).item()
-        return self
+    @classmethod
+    def load(cls, path: str) -> "MarkovModel":
+        data = np.load(path, allow_pickle=True).item()
+        model = cls(order=data["order"], smoothing=data["smoothing"])
+        model.counts = data["counts"]
+        model.metadata = data.get("metadata", model.metadata)
+        return model

@@ -78,3 +78,15 @@ class FeatureVectorRecord(Base):
     lz_complexity = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class ModelGenealogyRecord(Base):
+    __tablename__ = "model_genealogy"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    model_version_id = Column(BigInteger, index=True, nullable=False)
+    parent_model_version_id = Column(BigInteger, nullable=True)
+    generation = Column(Integer, index=True, nullable=False)
+    mutation = Column(JSON, default=dict)
+    selection_reason = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+

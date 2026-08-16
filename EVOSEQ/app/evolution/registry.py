@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from ..database import SessionLocal
-from ..schemas import ModelVersionRecord, ModelEvent
+from ..schemas import ModelVersionRecord, ModelEvent, ModelGenealogyRecord
 
 class ModelRegistry:
     """Manages model lifecycle, genealogy, promotion, and retirement."""
@@ -17,7 +17,10 @@ class ModelRegistry:
         validation_accuracy: Optional[float] = None,
         validation_log_loss: Optional[float] = None,
         validation_brier: Optional[float] = None,
-        status: str = "candidate"
+        status: str = "candidate",
+        parent_model_id: Optional[int] = None,
+        generation: int = 1,
+        mutation_details: Optional[Dict[str, Any]] = None
     ) -> int:
         with SessionLocal() as session:
             existing = session.query(ModelVersionRecord).filter(
@@ -56,6 +59,16 @@ class ModelRegistry:
                     details={"name": model_name, "version": version, "status": status}
                 )
                 session.add(event)
+                
+                # Log model genealogy
+                genealogy = ModelGenealogyRecord(
+                    model_version_id=record.id,
+                    parent_model_version_id=parent_model_id,
+                    generation=generation,
+                    mutation=mutation_details or {},
+                    selection_reason=f"Candidate generated for generation {generation}"
+                )
+                session.add(genealogy)
                 session.commit()
                 return record.id
 
@@ -130,3 +143,19 @@ class ModelRegistry:
                 "active_challengers": challengers,
                 "retired_models": retired
             }
+
+    def get_genealogy_history(self, limit: int = 50) -> List[Dict[str, Any]]:
+        with SessionLocal() as session:
+            records = session.query(ModelGenealogyRecord).order_by(ModelGenealogyRecord.generation.desc()).limit(limit).all()
+            return [
+                {
+                    "id": r.id,
+                    "model_version_id": r.model_version_id,
+                    "parent_model_version_id": r.parent_model_version_id,
+                    "generation": r.generation,
+                    "mutation": r.mutation,
+                    "selection_reason": r.selection_reason
+                }
+                for r in records
+            ]
+
