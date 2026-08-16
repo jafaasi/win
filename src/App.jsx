@@ -101,62 +101,114 @@ function App() {
           return newNumbers;
         });
 
-        // 4. Strict Win/Loss Verification using Deterministic Backend Logs
-        if (data && data.roundLogs) {
-          setRoundLogs(prevLogs => {
-            const existingIssues = new Set(prevLogs.map(l => l.issue));
-            const updatedLogs = [...prevLogs];
-            let updatedLvl = currentLevel;
+        // 4. Strict Win/Loss Verification: Match against exact on-screen predictions first!
+        setRoundLogs(prevLogs => {
+          const existingIssues = new Set(prevLogs.map(l => l.issue));
+          const updatedLogs = [...prevLogs];
+          let updatedLvl = currentLevel;
 
-            // data.roundLogs comes sorted from oldest to newest in backend, so we reverse it to process newest first,
-            // or we can just iterate and unshift.
-            // Wait, backend returns them in chronological order or reverse?
-            // backend: for idx in range(len(history) - 1, 0, -1): append(...) -> oldest first.
-            // We want newest at the top of updatedLogs, so we should unshift them as they come.
-            const incomingLogs = data.roundLogs;
+          // A. Process live completed draws against what was actually shown on screen
+          const chronologicalDraws = clientDraws.slice().reverse();
+          chronologicalDraws.forEach(draw => {
+            const rawIssue = String(draw.issueNumber);
+            const tagIssue = `#${rawIssue.slice(-5)}`;
             
-            // Re-calculate levels to be strictly 1, 2, 3 based on streak
-            incomingLogs.reverse().forEach((log) => {
-              if (!existingIssues.has(log.issue)) {
-                
-                // Track martingale: the bet level is the CURRENT level
-                const betLevel = updatedLvl;
-                log.level = betLevel;
-                
-                // Determine the NEXT level based on this log's outcome
-                if (log.isWin) {
+            if (!existingIssues.has(tagIssue)) {
+              const pending = pendingPredictions.current[rawIssue] || pendingPredictions.current[tagIssue];
+              if (pending) {
+                const drawNum = Number(draw.number);
+                const actualBS = toBigSmall(drawNum);
+                const isWin = (pending.targetBS === actualBS);
+                const betLevel = pending.level || updatedLvl;
+
+                const liveLog = {
+                  id: `live-${rawIssue}`,
+                  issue: tagIssue,
+                  targetBS: pending.targetBS,
+                  targetNum: pending.targetNum !== undefined ? pending.targetNum : (pending.targetBS === 'Big' ? 7 : 2),
+                  actualBS: actualBS,
+                  actualNum: drawNum,
+                  isWin: isWin,
+                  level: betLevel,
+                  pattern: pending.pattern || "Quantum AI",
+                  time: "Verified Live"
+                };
+
+                if (isWin) {
                   updatedLvl = 1;
                 } else {
                   updatedLvl = betLevel < 3 ? betLevel + 1 : 1;
                 }
+
+                updatedLogs.unshift(liveLog);
+                existingIssues.add(tagIssue);
+              }
+            }
+          });
+
+          // B. Fill in any missing historical rounds from backend logs (e.g. initial load / offline)
+          if (data && data.roundLogs) {
+            const incomingLogs = data.roundLogs.slice().reverse();
+            incomingLogs.forEach(log => {
+              if (!existingIssues.has(log.issue)) {
+                const pending = pendingPredictions.current[log.issue] || 
+                  Object.entries(pendingPredictions.current).find(([k]) => `#${String(k).slice(-5)}` === log.issue)?.[1];
                 
+                let finalTargetBS = log.targetBS;
+                let finalTargetNum = log.targetNum;
+                let finalPattern = log.pattern;
+                let finalIsWin = log.isWin;
+
+                if (pending) {
+                  finalTargetBS = pending.targetBS;
+                  finalTargetNum = pending.targetNum;
+                  finalPattern = pending.pattern;
+                  finalIsWin = (finalTargetBS === log.actualBS);
+                }
+
+                const betLevel = updatedLvl;
+                log.targetBS = finalTargetBS;
+                log.targetNum = finalTargetNum;
+                log.pattern = finalPattern;
+                log.isWin = finalIsWin;
+                log.level = betLevel;
                 log.id = log.id || `${log.issue}-${Date.now()}`;
-                
+
+                if (finalIsWin) {
+                  updatedLvl = 1;
+                } else {
+                  updatedLvl = betLevel < 3 ? betLevel + 1 : 1;
+                }
+
                 updatedLogs.unshift(log);
                 existingIssues.add(log.issue);
               }
             });
+          }
 
-            setCurrentLevel(updatedLvl);
-            return updatedLogs.slice(0, 1000);
-          });
-        }
+          setCurrentLevel(updatedLvl);
+          return updatedLogs.slice(0, 1000);
+        });
       }
 
       // 5. Update Active Prediction & Register in Pending Map for exact next verification
       if (data?.activePrediction) {
         setActivePrediction(data.activePrediction);
         const nextIss = String(data.activePrediction.nextIssue);
-        pendingPredictions.current[nextIss] = {
+        const tagIss = `#${nextIss.slice(-5)}`;
+        const predInfo = {
           targetBS: data.activePrediction.prediction,
           targetNum: data.activePrediction.targetNum,
           pattern: data.activePrediction.patternName,
           level: currentLevel
         };
+        pendingPredictions.current[nextIss] = predInfo;
+        pendingPredictions.current[tagIss] = predInfo;
       } else if (clientDraws.length > 0) {
         const lastNum = Number(clientDraws[0].number);
         const pred = lastNum >= 5 ? 'Small' : 'Big';
         const nextIss = String(Number(clientDraws[0].issueNumber) + 1);
+        const tagIss = `#${nextIss.slice(-5)}`;
         const autoPred = {
           prediction: pred,
           confidence: 94.2,
@@ -169,12 +221,14 @@ function App() {
           expertThoughts: `Loophole detection active. Target locked on ${pred.toUpperCase()}.`
         };
         setActivePrediction(autoPred);
-        pendingPredictions.current[nextIss] = {
+        const predInfo = {
           targetBS: pred,
           targetNum: autoPred.targetNum,
           pattern: autoPred.patternName,
           level: currentLevel
         };
+        pendingPredictions.current[nextIss] = predInfo;
+        pendingPredictions.current[tagIss] = predInfo;
       }
 
       setSyncStatus('live');
