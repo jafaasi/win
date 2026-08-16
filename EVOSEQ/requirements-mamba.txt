@@ -1,0 +1,4 @@
+# Optional hardware-accelerated Mamba SSM requirements (Requires NVIDIA GPU & CUDA on Linux)
+# Install on CUDA Linux via: pip install mamba-ssm causal-conv1d --no-build-isolation
+mamba-ssm>=1.2.0
+causal-conv1d>=1.2.0

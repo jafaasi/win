@@ -16,11 +16,15 @@ from app.models.markov import MarkovModel
 from app.models.hmm import HMMModel
 from app.models.esn import ESN
 from app.research.evaluator import evaluate, ModelEvaluation, rank_models
+from app.database import SessionLocal, engine, Base
+from app.schemas import Outcome, ModelScoreRecord
+from app.research.audit.data_quality import audit_dataframe
 from app.research.walk_forward import create_folds
 
 def run_generation_zero():
     seed_everything(42)
     print("🚀 Initializing EVOSEQ — Generation 0 Baseline Pipeline...")
+    Base.metadata.create_all(bind=engine)
     
     with SessionLocal() as session:
         outcomes = session.query(Outcome).order_by(Outcome.sequence_no.asc()).all()

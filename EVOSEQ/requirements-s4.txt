@@ -1,0 +1,5 @@
+# Optional research S4 repository requirements
+# Reference: https://github.com/state-spaces/s4
+einops>=0.6.0
+opt_einsum>=3.3.0
+pykeops>=2.1.0

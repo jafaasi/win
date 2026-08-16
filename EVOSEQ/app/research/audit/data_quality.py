@@ -19,8 +19,18 @@ def audit_dataframe(df: Any) -> List[str]:
     if hasattr(df, "sequence_no"):
         seq_nos = df.sequence_no.to_numpy()
         digits = df.digit.to_numpy()
+    elif isinstance(df, (list, tuple)) and len(df) > 0:
+        first = df[0]
+        if hasattr(first, "sequence_no"):
+            seq_nos = np.array([getattr(row, "sequence_no") for row in df])
+            digits = np.array([getattr(row, "digit") for row in df])
+        elif isinstance(first, dict):
+            seq_nos = np.array([row["sequence_no"] for row in df])
+            digits = np.array([row["digit"] for row in df])
+        else:
+            seq_nos = np.array([row[0] for row in df])
+            digits = np.array([row[1] for row in df])
     else:
-        # Dictionary / list fallback
         seq_nos = np.array([row["sequence_no"] for row in df])
         digits = np.array([row["digit"] for row in df])
         

@@ -13,10 +13,14 @@ from app.meta.questions import ResearchQuestionManager
 from app.meta.knowledge_graph import ModelKnowledgeGraph
 from app.meta.director import ResearchDirector
 from app.api import app
-from app.database import SessionLocal
+from app.database import SessionLocal, engine, Base
 from app.schemas import MetaExperimentRecord
 
 class TestMetaLearning(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        Base.metadata.create_all(bind=engine)
 
     def setUp(self):
         self.client = TestClient(app)

@@ -33,10 +33,14 @@ from app.research.audit import (
     generate_ascii_audit_hud
 )
 from app.models.markov import MarkovModel
-from app.database import SessionLocal
+from app.database import SessionLocal, engine, Base
 from app.schemas import ResearchExperimentRecord
 
 class TestResearchLaboratory(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        Base.metadata.create_all(bind=engine)
 
     def test_null_models(self):
         # 1. IID null generator
