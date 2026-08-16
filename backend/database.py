@@ -2,9 +2,12 @@ import os
 from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
-from dotenv import load_dotenv
 
-load_dotenv() # Load variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv() # Load variables from .env file if available locally
+except ImportError:
+    pass
 
 # Use cloud DATABASE_URL if provided, else fallback to local SQLite
 DATABASE_URL = os.environ.get("DATABASE_URL")
