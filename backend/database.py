@@ -55,8 +55,7 @@ class PredictionLog(Base):
     pattern_detected = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# Create all tables in the database
-Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine) # DO NOT run this on Vercel cold starts!
 
 def get_db():
     db = SessionLocal()
