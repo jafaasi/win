@@ -31,8 +31,8 @@ function loadPersistentLogs() {
 
 function savePersistentLogs(logs, hist, lvl, pending) {
   try {
-    localStorage.setItem(STORAGE_KEYS.MASTER_LOGS, JSON.stringify(logs.slice(0, 2000)));
-    localStorage.setItem(STORAGE_KEYS.MASTER_HISTORY, JSON.stringify(hist.slice(-2000)));
+    localStorage.setItem(STORAGE_KEYS.MASTER_LOGS, JSON.stringify(logs.slice(0, 5000)));
+    localStorage.setItem(STORAGE_KEYS.MASTER_HISTORY, JSON.stringify(hist.slice(-5000)));
     localStorage.setItem(STORAGE_KEYS.MARTINGALE_LVL, String(lvl));
     localStorage.setItem(STORAGE_KEYS.PENDING_PREDS, JSON.stringify(pending));
   } catch (e) {
@@ -94,11 +94,19 @@ function App() {
         setLatestIssue(newestIssue);
 
         setHistory(prevHist => {
+          if (data && data.history && data.history.length > prevHist.length) {
+            return data.history;
+          }
           const newNumbers = clientDraws.slice().reverse().map(d => Number(d.number));
-          // Since clientDraws is a sliding window, we can just use the exact sequence of numbers from the API.
-          // However, to keep a long history, we should only append NEW issues.
-          // The safest way is to rebuild history from roundLogs which is guaranteed to be in sync.
-          return newNumbers;
+          // If prevHist is empty, use newNumbers
+          if (prevHist.length === 0) return newNumbers;
+          // Append only new numbers
+          const lastPrev = prevHist[prevHist.length - 1];
+          const latestNew = newNumbers[newNumbers.length - 1];
+          if (lastPrev !== latestNew) {
+            return [...prevHist, latestNew].slice(-5000);
+          }
+          return prevHist;
         });
 
         // 4. Strict Win/Loss Verification: Match against exact on-screen predictions first!
@@ -187,7 +195,7 @@ function App() {
           }
 
           setCurrentLevel(updatedLvl);
-          return updatedLogs.slice(0, 1000);
+          return updatedLogs.slice(0, 5000);
         });
       }
 
