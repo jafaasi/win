@@ -9,6 +9,8 @@ try:
 except ImportError:
     pass
 
+from sqlalchemy.pool import NullPool
+
 # Use cloud DATABASE_URL if provided, else fallback to local SQLite
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
@@ -17,7 +19,7 @@ if DATABASE_URL:
     # Fix for Heroku/Render postgres:// -> postgresql://
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    engine = create_engine(DATABASE_URL)
+    engine = create_engine(DATABASE_URL, poolclass=NullPool, connect_args={"connect_timeout": 5})
 else:
     # Fallback to local SQLite
     DB_PATH = os.path.join(os.path.dirname(__file__), 'wingo_history.db')

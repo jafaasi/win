@@ -426,6 +426,10 @@ def compute_state(client_draws=None, init=False):
 
     history = []
     latest_issue = None
+    if live_draws:
+        history = [int(d["number"]) for d in reversed(live_draws)]
+        latest_issue = str(live_draws[0]["issueNumber"])
+
     db_draws = []
     recent_logs = []
 
@@ -437,35 +441,43 @@ def compute_state(client_draws=None, init=False):
             
         # 1. Fetch full deep historical numbers from Supabase (up to 10,000 draws)
         db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(10000).all()
-        
-        # Establish sequence history and latest issue
-        if live_draws:
-            history = [int(d["number"]) for d in reversed(live_draws)]
-            latest_issue = str(live_draws[0]["issueNumber"])
-        elif db_draws:
+        if not latest_issue and db_draws:
+            history = [int(d.number) for d in reversed(db_draws)]
+            latest_issue = str(db_draws[0].issue_number)
+            
+        # 2. Fetch full unbroken historical verified logs (up to 10,000 rounds)
+        recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(10000).all()
+        db.close()
+    except Exception as e:
+        print("DB Sync Note:", e)
+
+    if not latest_issue:
+        if db_draws:
             history = [int(d.number) for d in reversed(db_draws)]
             latest_issue = str(db_draws[0].issue_number)
         else:
             history = [3, 8, 2, 7, 1, 9, 4, 6]
-            latest_issue = "51730"
+            latest_issue = "51765"
 
-        # Run Loophole Exploitation Engine on sequence
-        ai = exploit_all_loopholes(history)
+    # Run Loophole Exploitation Engine on sequence
+    ai = exploit_all_loopholes(history)
 
-        next_issue = str(int(latest_issue) + 1)
-        active_pred = {
-            "prediction": ai["prediction"],
-            "confidence": ai["confidence"],
-            "level": 1,
-            "patternName": ai["patternName"],
-            "targetNum": ai["targetNum"],
-            "hedgeNum": ai["hedgeNum"],
-            "nextIssue": next_issue,
-            "strikeQuality": ai["strikeQuality"],
-            "expertThoughts": ai["loopholeInsight"]
-        }
+    next_issue = str(int(latest_issue) + 1)
+    active_pred = {
+        "prediction": ai["prediction"],
+        "confidence": ai["confidence"],
+        "level": 1,
+        "patternName": ai["patternName"],
+        "targetNum": ai["targetNum"],
+        "hedgeNum": ai["hedgeNum"],
+        "nextIssue": next_issue,
+        "strikeQuality": ai["strikeQuality"],
+        "expertThoughts": ai["loopholeInsight"]
+    }
 
-        # 2. Persistently record future prediction in Supabase before draw occurs
+    # Save future prediction to Supabase
+    try:
+        db = SessionLocal()
         save_prediction(
             db=db,
             issue_number=next_issue,
@@ -473,28 +485,9 @@ def compute_state(client_draws=None, init=False):
             confidence=active_pred["confidence"],
             pattern_name=active_pred["patternName"]
         )
-
-        # 3. Fetch full unbroken historical verified logs (up to 10,000 rounds)
-        recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(10000).all()
         db.close()
     except Exception as e:
-        print("DB Sync Note:", e)
-        if not history:
-            history = [3, 8, 2, 7, 1, 9, 4, 6]
-            latest_issue = "51730"
-        ai = exploit_all_loopholes(history)
-        next_issue = str(int(latest_issue) + 1)
-        active_pred = {
-            "prediction": ai["prediction"],
-            "confidence": ai["confidence"],
-            "level": 1,
-            "patternName": ai["patternName"],
-            "targetNum": ai["targetNum"],
-            "hedgeNum": ai["hedgeNum"],
-            "nextIssue": next_issue,
-            "strikeQuality": ai["strikeQuality"],
-            "expertThoughts": ai["loopholeInsight"]
-        }
+        pass
 
     # Generate memory verified logs for immediate recency
     round_logs = []
