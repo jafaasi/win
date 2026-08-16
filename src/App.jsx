@@ -31,8 +31,8 @@ function loadPersistentLogs() {
 
 function savePersistentLogs(logs, hist, lvl, pending) {
   try {
-    localStorage.setItem(STORAGE_KEYS.MASTER_LOGS, JSON.stringify(logs.slice(0, 5000)));
-    localStorage.setItem(STORAGE_KEYS.MASTER_HISTORY, JSON.stringify(hist.slice(-5000)));
+    localStorage.setItem(STORAGE_KEYS.MASTER_LOGS, JSON.stringify(logs.slice(0, 10000)));
+    localStorage.setItem(STORAGE_KEYS.MASTER_HISTORY, JSON.stringify(hist.slice(-10000)));
     localStorage.setItem(STORAGE_KEYS.MARTINGALE_LVL, String(lvl));
     localStorage.setItem(STORAGE_KEYS.PENDING_PREDS, JSON.stringify(pending));
   } catch (e) {
@@ -133,7 +133,7 @@ function App() {
               setCurrentLevel(nextLvl);
             }
 
-            return syncedLogs.slice(0, 5000);
+            return syncedLogs.slice(0, 10000);
           });
         }
       }

@@ -6,7 +6,7 @@ from api.index import exploit_all_loopholes
 
 def predict_next_outcome():
     db = SessionLocal()
-    draws = db.query(Draw).order_by(desc(Draw.issue_number)).limit(60).all()
+    draws = db.query(Draw).order_by(desc(Draw.issue_number)).limit(10000).all()
     db.close()
     
     if not draws:

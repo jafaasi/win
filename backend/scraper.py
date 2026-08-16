@@ -47,8 +47,8 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
                         # 1. Sync draws & verify pending prediction logs
                         new_draws = save_live_draws(db, draws)
                         
-                        # 2. Extract full deep sequence history from Supabase (up to 2000 draws)
-                        db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(2000).all()
+                        # 2. Extract full deep sequence history from Supabase (up to 10,000 draws)
+                        db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(10000).all()
                         if db_draws:
                             history = [int(d.number) for d in reversed(db_draws)]
                         else:

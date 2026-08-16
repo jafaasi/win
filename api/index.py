@@ -435,11 +435,11 @@ def compute_state(client_draws=None, init=False):
         if live_draws:
             save_live_draws(db, live_draws)
             
-        # 1. Fetch full unbroken historical verified logs (up to 1000 rounds)
-        recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(1000).all()
+        # 1. Fetch full unbroken historical verified logs (up to 10,000 rounds)
+        recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(10000).all()
         
-        # 2. Fetch full deep historical numbers from Supabase (up to 1000 draws)
-        db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(1000).all()
+        # 2. Fetch full deep historical numbers from Supabase (up to 10,000 draws)
+        db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(10000).all()
         db.close()
     except Exception as e:
         print("DB Sync Note:", e)
