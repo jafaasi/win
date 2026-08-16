@@ -168,23 +168,24 @@ def sync_latest_draws(db):
     except Exception as e:
         print("Sync Note:", e)
 
-@app.get("/api/state")
-@app.get("/api/index")
-def get_state():
-    # 1. Fetch live draws directly from WinGo 30S API (always succeeds over HTTPS)
-    live_draws = []
-    try:
-        url = f"https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json?ts={datetime.utcnow().timestamp()}"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "application/json"
-        }
-        res = httpx.get(url, headers=headers, timeout=8.0)
-        if res.status_code == 200:
-            data = res.json()
-            live_draws = data.get("data", {}).get("list", [])
-    except Exception as err:
-        print("Live API fetch note:", err)
+@app.api_route("/api/state", methods=["GET", "POST"])
+@app.api_route("/api/index", methods=["GET", "POST"])
+def get_state(client_draws: list = None):
+    # 1. Use client draws if provided, else fetch live from WinGo
+    live_draws = client_draws or []
+    if not live_draws:
+        try:
+            url = f"https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json?ts={datetime.utcnow().timestamp()}"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "Accept": "application/json"
+            }
+            res = httpx.get(url, headers=headers, timeout=5.0)
+            if res.status_code == 200:
+                data = res.json()
+                live_draws = data.get("data", {}).get("list", [])
+        except Exception as err:
+            print("Live API fetch note:", err)
 
     # 2. Try DB synchronization if available
     db_history = []
