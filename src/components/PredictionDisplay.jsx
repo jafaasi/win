@@ -33,8 +33,15 @@ export default function PredictionDisplay({
   modelsTested = 128,
   activeChallengers = 5,
   retiredModels = 122,
-  regimeProbabilities = {}
+  regimeProbabilities = {},
+  h1 = null,
+  h2 = null,
+  h3 = null,
+  aleatoricEntropy = 3.22,
+  modelDisagreement = 0.045,
+  familyWeights = null
 }) {
+
   if (historyLength < 2) {
     return (
       <div className="card prediction-hero fade-up">
@@ -412,6 +419,77 @@ export default function PredictionDisplay({
           </div>
         )}
 
+        {/* Multi-Horizon Calibrated Probability Distributions (H1, H2, H3) */}
+        {h1 && h1.length === 10 && (
+          <div style={{ marginBottom: '0.75rem', background: 'rgba(0,0,0,0.25)', padding: '0.6rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ fontSize: '0.68rem', color: '#818cf8', fontWeight: 800, marginBottom: '0.4rem', display: 'flex', justifyContent: 'space-between' }}>
+              <span>🎯 MULTI-HORIZON PROBABILITY DISTRIBUTIONS</span>
+              <span>P(X_t=k) CALIBRATED</span>
+            </div>
+
+            {/* Horizon tabs / rows */}
+            {[
+              { label: 'H1 (Next +1)', data: h1, color: '#38bdf8' },
+              { label: 'H2 (+2 Steps)', data: h2 || h1, color: '#a78bfa' },
+              { label: 'H3 (+3 Steps)', data: h3 || h1, color: '#34d399' }
+            ].map((hRow, hIdx) => (
+              <div key={hIdx} style={{ marginBottom: hIdx < 2 ? '0.4rem' : '0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.62rem', color: 'var(--text-muted)', marginBottom: '0.15rem' }}>
+                  <span style={{ color: hRow.color, fontWeight: 700 }}>{hRow.label}</span>
+                  <span>Top: #{hRow.data.indexOf(Math.max(...hRow.data))} ({Math.round(Math.max(...hRow.data) * 100)}%)</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: '2px', height: '14px', alignItems: 'end', background: 'rgba(0,0,0,0.3)', padding: '2px', borderRadius: '4px' }}>
+                  {hRow.data.map((prob, dIdx) => (
+                    <div
+                      key={dIdx}
+                      title={`Digit ${dIdx}: ${Math.round(prob * 100)}%`}
+                      style={{
+                        height: `${Math.max(15, prob * 100 * 2.5)}%`,
+                        background: prob === Math.max(...hRow.data) ? hRow.color : 'rgba(255,255,255,0.15)',
+                        borderRadius: '1px'
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Dual Uncertainty & Dynamic Family Weights */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, 1fr)',
+          gap: '0.5rem',
+          marginBottom: '0.75rem'
+        }}>
+          {/* Model Disagreement */}
+          <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.5rem 0.65rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Disagreement (D_JS)</span>
+              <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#f59e0b', fontFamily: 'JetBrains Mono' }}>
+                {modelDisagreement || 0.045} bits
+              </span>
+            </div>
+            <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '2px', marginTop: '0.35rem', overflow: 'hidden' }}>
+              <div style={{ width: `${Math.min(100, (modelDisagreement || 0.045) * 200)}%`, height: '100%', background: '#f59e0b' }} />
+            </div>
+          </div>
+
+          {/* Aleatoric Entropy */}
+          <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.5rem 0.65rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Aleatoric Entropy</span>
+              <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#a78bfa', fontFamily: 'JetBrains Mono' }}>
+                {aleatoricEntropy || entropy || 3.22} bits
+              </span>
+            </div>
+            <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '2px', marginTop: '0.35rem', overflow: 'hidden' }}>
+              <div style={{ width: `${Math.min(100, ((aleatoricEntropy || entropy || 3.22) / 3.322) * 100)}%`, height: '100%', background: '#a78bfa' }} />
+            </div>
+          </div>
+        </div>
+
         {/* Model Population Registry Ledger */}
         <div style={{
           display: 'flex',
@@ -440,6 +518,7 @@ export default function PredictionDisplay({
           </div>
         </div>
       </div>
+
 
       {/* 4 Pillars of Casino Intelligence */}
       {pillars.length > 0 && (

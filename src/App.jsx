@@ -363,7 +363,14 @@ function App() {
         activeChallengers={activePrediction?.activeChallengers}
         retiredModels={activePrediction?.retiredModels}
         regimeProbabilities={activePrediction?.regimeProbabilities}
+        h1={activePrediction?.h1}
+        h2={activePrediction?.h2}
+        h3={activePrediction?.h3}
+        aleatoricEntropy={activePrediction?.aleatoricEntropy}
+        modelDisagreement={activePrediction?.modelDisagreement}
+        familyWeights={activePrediction?.familyWeights}
       />
+
 
       {/* Persistent History & Verified Logs */}
       <HistoryLog

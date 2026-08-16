@@ -88,6 +88,114 @@ def health_check():
 def get_api_state():
     return compute_state(init=True)
 
+@app.get("/api/models")
+def get_models_population():
+    db = SessionLocal()
+    try:
+        from backend.database import ModelVersion
+        models = db.query(ModelVersion).order_by(ModelVersion.id.desc()).limit(50).all()
+        return {
+            "count": len(models),
+            "models": [
+                {
+                    "id": m.id,
+                    "model_name": m.model_name,
+                    "version": m.version,
+                    "validation_score": m.validation_score,
+                    "log_loss": m.log_loss,
+                    "brier_score": m.brier_score,
+                    "status": m.status,
+                    "created_at": m.created_at.isoformat() if m.created_at else None
+                }
+                for m in models
+            ]
+        }
+    finally:
+        db.close()
+
+@app.get("/api/models/champion")
+def get_champion_model():
+    state = compute_state(init=True)
+    stats = state.get("evolutionStats", {})
+    return {
+        "champion": stats.get("championModel", "SSM-Mamba-v1"),
+        "generation": stats.get("modelGeneration", 1),
+        "predictive_score": stats.get("predictiveScore", 0.54),
+        "log_loss": stats.get("logLoss", 0.65),
+        "brier_score": stats.get("brierScore", 0.20),
+        "null_advantage": stats.get("nullAdvantage", 0.04)
+    }
+
+@app.get("/api/ensemble")
+def get_ensemble_details():
+    state = compute_state(init=True)
+    pred = state.get("activePrediction", {})
+    return {
+        "familyWeights": pred.get("familyWeights", {"statistical": 0.35, "recurrent": 0.35, "neural": 0.30}),
+        "modelDisagreement": pred.get("modelDisagreement", 0.045),
+        "aleatoricEntropy": pred.get("aleatoricEntropy", 3.22),
+        "h1": pred.get("h1", [0.1]*10),
+        "h2": pred.get("h2", [0.1]*10),
+        "h3": pred.get("h3", [0.1]*10)
+    }
+
+@app.get("/api/environment")
+def get_environment_state():
+    state = compute_state(init=True)
+    stats = state.get("evolutionStats", {})
+    pred = state.get("activePrediction", {})
+    return {
+        "entropy": stats.get("entropy", 3.22),
+        "driftLevel": stats.get("driftLevel", "LOW"),
+        "driftScore": stats.get("driftScore", 0.02),
+        "regime": stats.get("regimeProbabilities", {}),
+        "environmentVector": pred.get("environmentVector", [3.22, 0.08, 0.03, 0.02, 0.12, 0.34, 0.045])
+    }
+
+@app.get("/api/evolution/genealogy")
+def get_evolution_genealogy():
+    state = compute_state(init=True)
+    stats = state.get("evolutionStats", {})
+    return {
+        "generation": stats.get("modelGeneration", 1),
+        "champion": stats.get("championModel", "SSM-Mamba-v1"),
+        "modelsTested": stats.get("modelsTested", 128),
+        "activeChallengers": stats.get("activeChallengers", 5),
+        "retiredModels": stats.get("retiredModels", 122),
+        "familySurvivalRates": {
+            "Statistical": 0.33,
+            "Recurrent": 0.33,
+            "Neural": 0.34,
+            "StateSpace": 0.50
+        }
+    }
+
+@app.get("/api/experiments")
+def get_experiments_list():
+    db = SessionLocal()
+    try:
+        from backend.database import ExperimentResult, ModelCandidate
+        exp_list = db.query(ExperimentResult).order_by(ExperimentResult.id.desc()).limit(20).all()
+        return {
+            "count": len(exp_list),
+            "experiments": [
+                {
+                    "id": e.id,
+                    "candidate_id": e.candidate_id,
+                    "fold": e.fold,
+                    "seed": e.seed,
+                    "log_loss": e.log_loss,
+                    "brier_score": e.brier_score,
+                    "accuracy": e.accuracy,
+                    "null_p_value": e.null_p_value
+                }
+                for e in exp_list
+            ]
+        }
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))

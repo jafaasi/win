@@ -111,6 +111,65 @@ class PredictionAudit(Base):
     null_advantage = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class EnsembleObservation(Base):
+    __tablename__ = "ensemble_observations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sequence_no = Column(String, index=True)
+    environment = Column(String) # JSON string
+    model_predictions = Column(String) # JSON string
+    model_weights = Column(String) # JSON string
+    ensemble_prediction = Column(String) # JSON string
+    actual_digit = Column(Integer, nullable=True)
+    ensemble_log_loss = Column(Float, nullable=True)
+    disagreement = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class ResearchHypothesis(Base):
+    __tablename__ = "research_hypotheses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    hypothesis_code = Column(String, unique=True, index=True)
+    category = Column(String)
+    parent_model_id = Column(Integer, nullable=True)
+    description = Column(String)
+    configuration = Column(String) # JSON string
+    expected_effect = Column(String, nullable=True)
+    priority = Column(Float, default=0.0)
+    budget = Column(Integer, default=1)
+    status = Column(String, default="PENDING")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class ModelCandidate(Base):
+    __tablename__ = "model_candidates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    candidate_code = Column(String, unique=True, index=True)
+    hypothesis_id = Column(Integer, nullable=True)
+    parent_model_id = Column(Integer, nullable=True)
+    generation = Column(Integer, default=1)
+    family = Column(String)
+    configuration = Column(String) # JSON string
+    status = Column(String, default="CANDIDATE")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class ExperimentResult(Base):
+    __tablename__ = "experiment_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    candidate_id = Column(Integer, nullable=True)
+    fold = Column(Integer, nullable=True)
+    seed = Column(Integer, nullable=True)
+    horizon = Column(Integer, default=1)
+    log_loss = Column(Float, nullable=True)
+    brier_score = Column(Float, nullable=True)
+    accuracy = Column(Float, nullable=True)
+    calibration_error = Column(Float, nullable=True)
+    null_p_value = Column(Float, nullable=True)
+    runtime_seconds = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 # Ensure tables are created
 try:
     Base.metadata.create_all(bind=engine)
