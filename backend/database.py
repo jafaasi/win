@@ -1,6 +1,6 @@
 import os
 import math
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime
+from sqlalchemy import create_engine, Column, Integer, BigInteger, String, Float, Boolean, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
 
@@ -29,6 +29,22 @@ else:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+class Outcome(Base):
+    """
+    Stores historical sequence outcomes in Supabase for EVOSEQ continuous learning.
+    """
+    __tablename__ = "outcomes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sequence_no = Column(BigInteger, unique=True, index=True)
+    timestamp_utc = Column(DateTime, default=datetime.utcnow)
+    digit = Column(Integer, nullable=False)
+    size = Column(Integer, nullable=False) # 1: Big, 0: Small
+    color = Column(Integer, nullable=False) # 0: Green, 1: Red, 2: Violet
+    parity = Column(Integer, nullable=False) # 1: Odd, 0: Even
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class Draw(Base):
     """
     Stores every single raw outcome pulled from the WinGo 30S API.
@@ -41,6 +57,7 @@ class Draw(Base):
     color = Column(String)
     size = Column(String)  # 'Big' or 'Small'
     created_at = Column(DateTime, default=datetime.utcnow)
+
 
 class PredictionLog(Base):
     """
@@ -209,8 +226,25 @@ def save_live_draws(db, live_draws):
             db.add(new_draw)
             new_draws += 1
             
+        # 1b. Check and synchronize Outcome in Supabase
+        try:
+            seq_val = int(issue)
+            existing_outcome = db.query(Outcome).filter(Outcome.sequence_no == seq_val).first()
+            if not existing_outcome:
+                new_outcome = Outcome(
+                    sequence_no=seq_val,
+                    digit=num,
+                    size=1 if act_size == "Big" else 0,
+                    color=0 if num in [1,3,7,9] else (2 if num in [0,5] else 1),
+                    parity=num % 2
+                )
+                db.add(new_outcome)
+        except Exception:
+            pass
+            
         # 2. Check and update or create PredictionLog
         pending_log = db.query(PredictionLog).filter(PredictionLog.issue_number == issue).first()
+
         if pending_log:
             if pending_log.actual_size is None:
                 pending_log.actual_size = act_size

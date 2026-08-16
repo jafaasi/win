@@ -600,7 +600,7 @@ def exploit_all_loopholes(history, db=None, current_level=1, last_miss_direction
     }
 
 
-from backend.database import SessionLocal, Draw, PredictionLog, save_live_draws, save_prediction, save_prediction_audit
+from backend.database import SessionLocal, Outcome, Draw, PredictionLog, save_live_draws, save_prediction, save_prediction_audit
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
 
@@ -645,13 +645,16 @@ def compute_state(client_payload=None, init=False):
         if live_draws:
             save_live_draws(db, live_draws)
             
-        # 1. Fetch full deep historical numbers from Supabase (up to 50,000 draws)
-        db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(50000).all()
-        if not latest_issue and db_draws:
-            history = [int(d.number) for d in reversed(db_draws)]
-            latest_issue = str(db_draws[0].issue_number)
-        elif db_draws and len(db_draws) > len(history):
-            history = [int(d.number) for d in reversed(db_draws)]
+        # 1. Fetch full deep historical outcomes from Supabase (up to 50,000 observations)
+        outcomes_list = db.query(Outcome).order_by(Outcome.sequence_no.desc()).limit(50000).all()
+        if outcomes_list:
+            history = [int(o.digit) for o in reversed(outcomes_list)]
+            latest_issue = str(outcomes_list[0].sequence_no)
+        else:
+            db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(50000).all()
+            if db_draws:
+                history = [int(d.number) for d in reversed(db_draws)]
+                latest_issue = str(db_draws[0].issue_number)
             
         # 2. Fetch full unbroken historical verified logs (up to 50,000 rounds)
         recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(50000).all()
@@ -662,6 +665,7 @@ def compute_state(client_payload=None, init=False):
     except Exception as e:
         print("DB Sync Note:", e)
         ai = exploit_all_loopholes(history, current_level=current_level)
+
 
     if not latest_issue:
         if db_draws:
