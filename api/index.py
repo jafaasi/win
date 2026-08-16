@@ -171,8 +171,8 @@ def sync_latest_draws(db):
 @app.get("/api/state")
 @app.get("/api/index")
 def get_state():
-    db = SessionLocal()
     try:
+        db = SessionLocal()
         sync_latest_draws(db)
         
         history_draws = db.query(Draw).order_by(desc(Draw.issue_number)).limit(20).all()
@@ -232,6 +232,7 @@ def get_state():
                 db.commit()
 
         win_rate = round((wins / (wins + losses) * 100), 1) if (wins + losses) > 0 else 0
+        db.close()
         
         return {
             "history": history,
@@ -246,5 +247,12 @@ def get_state():
                 "isModelTrained": ai_res.get("isTrained", False)
             }
         }
-    finally:
-        db.close()
+    except Exception as e:
+        import traceback
+        return {
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "history": [],
+            "roundLogs": [],
+            "stats": {"totalVerified": 0, "wins": 0, "losses": 0, "winRate": 0, "isModelTrained": False}
+        }
