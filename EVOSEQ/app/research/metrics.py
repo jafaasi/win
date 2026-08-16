@@ -31,6 +31,9 @@ def accuracy(probabilities: Union[Sequence[np.ndarray], np.ndarray], targets: Un
     preds = np.argmax(probs, axis=-1)
     return float(np.mean(preds == y))
 
+accuracy_score = accuracy
+
+
 def brier_score(probabilities: Union[Sequence[np.ndarray], np.ndarray], targets: Union[Sequence[int], np.ndarray]) -> float:
     """
     Computes multi-class Brier score:

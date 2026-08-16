@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from sqlalchemy import Column, Integer, BigInteger, SmallInteger, String, Float, Boolean, DateTime, JSON
+from sqlalchemy import Column, Integer, BigInteger, SmallInteger, String, Float, Boolean, DateTime, JSON, ForeignKey, Text
 from .database import Base
 
 class Outcome(Base):
@@ -185,12 +185,21 @@ class ResearchHypothesisRecord(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     question_id = Column(BigInteger, index=True, nullable=True)
-    title = Column(String, nullable=False)
-    description = Column(String, nullable=True)
-    status = Column(String, default="PRE_REGISTERED") # PRE_REGISTERED, SUPPORTED, WEAK_EVIDENCE, INCONCLUSIVE, REJECTED
+    hypothesis_code = Column(String(64), unique=True, index=True, nullable=True)
+    category = Column(String(64), nullable=True, default="architecture")
+    parent_model_id = Column(BigInteger, nullable=True)
+    title = Column(String, nullable=True)
+    description = Column(Text, nullable=True)
+    configuration = Column(JSON, default=dict)
+    expected_effect = Column(Text, nullable=True)
+    priority = Column(Float, default=0.0)
+    budget = Column(Integer, default=1)
+    status = Column(String(32), default="PRE_REGISTERED") # PRE_REGISTERED, ACTIVE, CONFIRMED, REFUTED, REJECTED
     evidence_score = Column(Float, default=0.0)
     evidence_summary = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
+
 
 class HiddenStateExperimentRecord(Base):
     __tablename__ = "hidden_state_experiments"
@@ -251,6 +260,36 @@ class EnsembleObservationRecord(Base):
     ensemble_log_loss = Column(Float, nullable=True)
     disagreement = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class ModelCandidateRecord(Base):
+    __tablename__ = "model_candidates"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    candidate_code = Column(String(64), unique=True, index=True, nullable=True)
+    hypothesis_id = Column(BigInteger, ForeignKey("research_hypotheses.id"), nullable=True)
+    parent_model_id = Column(BigInteger, nullable=True)
+    generation = Column(Integer, nullable=False)
+    family = Column(String(64), nullable=False)
+    configuration = Column(JSON, default=dict)
+    status = Column(String(32), default="CANDIDATE")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class ExperimentResultRecord(Base):
+    __tablename__ = "experiment_results"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    candidate_id = Column(BigInteger, ForeignKey("model_candidates.id"), nullable=True)
+    fold = Column(Integer, nullable=True)
+    seed = Column(Integer, nullable=True)
+    horizon = Column(Integer, default=1)
+    log_loss = Column(Float, nullable=True)
+    brier_score = Column(Float, nullable=True)
+    accuracy = Column(Float, nullable=True)
+    calibration_error = Column(Float, nullable=True)
+    null_p_value = Column(Float, nullable=True)
+    runtime_seconds = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 
 
 

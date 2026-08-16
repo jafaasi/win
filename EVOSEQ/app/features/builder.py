@@ -25,12 +25,19 @@ def digit_features(digit: int, size: int, color: int, parity: int) -> np.ndarray
     return vector
 
 def build_feature_matrix(df: Any) -> np.ndarray:
-    """Builds a full [N, 17] categorical feature matrix from a dataframe or list of objects."""
+    """Builds a full [N, 17] categorical feature matrix from a dataframe, list of objects, or integer sequence."""
     if hasattr(df, "itertuples"):
         return np.vstack([
             digit_features(int(row.digit), int(row.size), int(row.color), int(row.parity))
             for row in df.itertuples()
         ])
+    elif len(df) > 0 and (isinstance(df[0], (int, np.integer)) or np.isscalar(df[0])):
+        from ..core.mapping import map_digit
+        feats = []
+        for d in df:
+            m = map_digit(int(d))
+            feats.append(digit_features(m["digit"], m["size"], m["color"], m["parity"]))
+        return np.vstack(feats)
     else:
         return np.vstack([
             digit_features(int(row.digit if hasattr(row, 'digit') else row['digit']),
@@ -39,6 +46,7 @@ def build_feature_matrix(df: Any) -> np.ndarray:
                            int(row.parity if hasattr(row, 'parity') else row['parity']))
             for row in df
         ])
+
 
 def create_supervised_dataset(
     features: Sequence[np.ndarray],

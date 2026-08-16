@@ -21,6 +21,7 @@ class NeuralTransformer(nn.Module):
         context_length: int = 128,
         horizons: int = 3,
         classes: int = 10,
+        **kwargs
     ):
         super().__init__()
         self.input_size = input_size
@@ -77,6 +78,23 @@ class NeuralTransformer(nn.Module):
         hidden = self.norm(hidden)
         state = hidden[:, -1]
         return [head(state) for head in self.heads]
+
+    def fit(self, X: Any, y: Optional[Any] = None, **kwargs) -> "NeuralTransformer":
+        """Polymorphic fit interface."""
+        return self
+
+    def update(self, X: Any, y: Optional[Any] = None, **kwargs) -> "NeuralTransformer":
+        return self
+
+    def predict_sequence(self, sequence: Sequence[Any]) -> np.ndarray:
+        """Sequential probability generation across sequence length."""
+        preds = []
+        seq_list = list(sequence)
+        for t in range(len(seq_list)):
+            ctx = seq_list[:t+1]
+            p = self.predict_proba(ctx)
+            preds.append(p)
+        return np.asarray(preds, dtype=np.float64)
 
     def predict_proba(self, x: Any) -> Union[List[torch.Tensor], np.ndarray]:
         """Inference mode returning calibrated Softmax probability distributions."""
