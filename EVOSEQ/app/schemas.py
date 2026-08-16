@@ -225,6 +225,20 @@ class EnvironmentFingerprintRecord(Base):
     metadata_json = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class ModelScoreRecord(Base):
+    __tablename__ = "model_scores"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    model_version_id = Column(BigInteger, index=True, nullable=False)
+    fold_id = Column(Integer, index=True, nullable=False)
+    horizon = Column(Integer, default=1)
+    accuracy = Column(Float, nullable=True)
+    log_loss = Column(Float, nullable=True)
+    brier_score = Column(Float, nullable=True)
+    calibration_error = Column(Float, nullable=True)
+    evaluated_at = Column(DateTime, default=datetime.utcnow)
+
+
 
 
 
