@@ -350,6 +350,19 @@ function App() {
         totalSamplesTrained={activePrediction?.totalSamplesTrained}
         championGenome={activePrediction?.championGenome}
         latentRegime={activePrediction?.latentRegime}
+        predictiveScore={activePrediction?.predictiveScore}
+        calibrationQuality={activePrediction?.calibrationQuality}
+        stabilityScore={activePrediction?.stabilityScore}
+        brierScore={activePrediction?.brierScore}
+        logLoss={activePrediction?.logLoss}
+        nullAdvantage={activePrediction?.nullAdvantage}
+        entropy={activePrediction?.entropy}
+        driftLevel={activePrediction?.driftLevel}
+        driftScore={activePrediction?.driftScore}
+        modelsTested={activePrediction?.modelsTested}
+        activeChallengers={activePrediction?.activeChallengers}
+        retiredModels={activePrediction?.retiredModels}
+        regimeProbabilities={activePrediction?.regimeProbabilities}
       />
 
       {/* Persistent History & Verified Logs */}

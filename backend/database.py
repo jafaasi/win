@@ -1,4 +1,5 @@
 import os
+import math
 from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
@@ -71,6 +72,51 @@ class AIBrainState(Base):
     best_win_rate = Column(Float, default=0.0)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
+class ModelVersion(Base):
+    """
+    Stores individual model artifacts, hyperparameters, and validation metrics in the population registry.
+    """
+    __tablename__ = "model_versions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    model_name = Column(String, index=True)
+    version = Column(String, index=True)
+    parameters = Column(String)  # JSON-encoded hyperparameters
+    training_end_sequence = Column(String)
+    validation_score = Column(Float, default=0.0)
+    log_loss = Column(Float, default=0.0)
+    brier_score = Column(Float, default=0.0)
+    status = Column(String, default="challenger")  # 'champion', 'challenger', 'retired'
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class PredictionAudit(Base):
+    """
+    Stores permanent audit ledger of predictions, probabilities, calibration, entropy, and null advantage.
+    """
+    __tablename__ = "prediction_audit"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sequence_no = Column(String, index=True)
+    model_version = Column(String)
+    probability_big = Column(Float)
+    predicted_digit = Column(Integer, nullable=True)
+    actual_number = Column(Integer, nullable=True)
+    actual_size = Column(String, nullable=True)
+    is_correct = Column(Boolean, nullable=True)
+    log_loss = Column(Float, nullable=True)
+    brier_score = Column(Float, nullable=True)
+    entropy = Column(Float, nullable=True)
+    regime_id = Column(String, nullable=True)
+    drift_score = Column(Float, nullable=True)
+    null_advantage = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+# Ensure tables are created
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    print("Table creation note:", e)
+
 def get_db():
     db = SessionLocal()
     try:
@@ -111,8 +157,6 @@ def save_live_draws(db, live_draws):
                 pending_log.actual_size = act_size
                 pending_log.is_win = (pending_log.predicted_size == act_size)
         else:
-            # Create a retrospective verified prediction log if worker missed it
-            # Deterministic default: predict opposite of streak if recent, else Big
             pred_size = 'Small' if num >= 5 else 'Big'
             log = PredictionLog(
                 issue_number=issue,
@@ -124,6 +168,18 @@ def save_live_draws(db, live_draws):
                 pattern_detected="Quantum Neural Engine"
             )
             db.add(log)
+            
+        # 3. Update pending PredictionAudit entry if exists
+        audit_entry = db.query(PredictionAudit).filter(PredictionAudit.sequence_no == issue).first()
+        if audit_entry and audit_entry.actual_number is None:
+            audit_entry.actual_number = num
+            audit_entry.actual_size = act_size
+            target_val = 1.0 if act_size == "Big" else 0.0
+            p = audit_entry.probability_big or 0.5
+            audit_entry.is_correct = ((p >= 0.5 and act_size == "Big") or (p < 0.5 and act_size == "Small"))
+            p_clip = max(0.001, min(0.999, p))
+            audit_entry.log_loss = - (target_val * math.log(p_clip) + (1.0 - target_val) * math.log(1.0 - p_clip))
+            audit_entry.brier_score = (p - target_val) ** 2
             
     try:
         db.commit()
@@ -149,6 +205,29 @@ def save_prediction(db, issue_number, prediction, confidence, pattern_name):
             db.commit()
         except Exception as e:
             db.rollback()
+
+def save_prediction_audit(db, sequence_no, model_version, prob_big, predicted_digit, entropy, regime_id, drift_score, null_adv):
+    """
+    Saves an audit record for the incoming prediction step into prediction_audit.
+    """
+    try:
+        existing = db.query(PredictionAudit).filter(PredictionAudit.sequence_no == str(sequence_no)).first()
+        if not existing:
+            audit = PredictionAudit(
+                sequence_no=str(sequence_no),
+                model_version=str(model_version),
+                probability_big=float(prob_big),
+                predicted_digit=int(predicted_digit) if predicted_digit is not None else None,
+                entropy=float(entropy),
+                regime_id=str(regime_id),
+                drift_score=float(drift_score),
+                null_advantage=float(null_adv)
+            )
+            db.add(audit)
+            db.commit()
+    except Exception as e:
+        db.rollback()
+        print("Save audit note:", e)
 
 def load_ai_brain_state(db, model_name="master_neural_ensemble"):
     """
@@ -187,3 +266,4 @@ def save_ai_brain_state(db, model_name, generation, total_samples, weights_json,
     except Exception as e:
         db.rollback()
         print("Save brain note:", e)
+
