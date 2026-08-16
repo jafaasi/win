@@ -100,5 +100,24 @@ class ModelRuntimeStateRecord(Base):
     runtime_metadata = Column(JSON, default=dict)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
+class ResearchExperimentRecord(Base):
+    __tablename__ = "research_experiments"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    experiment_type = Column(String, index=True, nullable=False)
+    model_version_id = Column(BigInteger, index=True, nullable=True)
+    null_model = Column(String, nullable=True)
+    sample_size = Column(BigInteger, nullable=True)
+    observed_score = Column(Float, nullable=True)
+    null_mean = Column(Float, nullable=True)
+    null_std = Column(Float, nullable=True)
+    p_value = Column(Float, nullable=True)
+    correction_method = Column(String, nullable=True)
+    test_range_start = Column(BigInteger, nullable=True)
+    test_range_end = Column(BigInteger, nullable=True)
+    metadata_json = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 
 
