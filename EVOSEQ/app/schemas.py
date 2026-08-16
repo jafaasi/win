@@ -89,4 +89,16 @@ class ModelGenealogyRecord(Base):
     selection_reason = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class ModelRuntimeStateRecord(Base):
+    __tablename__ = "model_runtime_state"
+
+    model_version_id = Column(BigInteger, primary_key=True, index=True)
+    last_sequence_no = Column(BigInteger, index=True, nullable=False)
+    state_path = Column(String, nullable=True)
+    optimizer_state_path = Column(String, nullable=True)
+    feature_state = Column(JSON, default=dict)
+    runtime_metadata = Column(JSON, default=dict)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
 

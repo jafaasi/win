@@ -36,6 +36,8 @@ def log_episodic_event(event_type: str, model_version_id: Optional[int] = None, 
         session.add(evt)
         session.commit()
 
+from ..models.ssm import S4SequenceModel, MambaSequenceModel
+
 def spawn_evolved_challengers(
     sequence: List[int],
     champion_params: Optional[Dict[str, Any]] = None,
@@ -44,7 +46,8 @@ def spawn_evolved_challengers(
     exploration_factor: float = 0.20
 ) -> List[Dict[str, Any]]:
     """
-    Generates a population of mutated architecture challengers using adaptive exploration/exploitation.
+    Generates a population of mutated architecture challengers using adaptive exploration/exploitation
+    across Statistical, Probabilistic, Dynamical, and State-Space neural model families.
     """
     challengers = []
     
@@ -92,7 +95,7 @@ def spawn_evolved_challengers(
             "mutation": mut_esn
         })
         
-    # 4. Calibrated PyTorch Transformer
+    # 4. Calibrated PyTorch Causal Transformer
     trans = TransformerSequenceModel(
         input_size=10,
         hidden_size=32,
@@ -108,8 +111,42 @@ def spawn_evolved_challengers(
         "parameters": trans.metadata.parameters,
         "mutation": {"hidden_size": 32, "heads": 2}
     })
+
+    # 5. Structured State Space Model (S4)
+    s4_model = S4SequenceModel(
+        input_size=10,
+        hidden_size=32,
+        layers=1,
+        context_length=64,
+        temperature=1.1,
+        version=f"s4-h32-gen{current_gen}"
+    )
+    challengers.append({
+        "model_name": "S4",
+        "version": s4_model.metadata.version,
+        "model_instance": s4_model,
+        "parameters": s4_model.metadata.parameters,
+        "mutation": {"hidden_size": 32, "layers": 1}
+    })
+
+    # 6. Mamba Selective State Space Model
+    mamba_model = MambaSequenceModel(
+        input_size=10,
+        hidden_size=32,
+        layers=1,
+        context_length=64,
+        temperature=1.1,
+        version=f"mamba-h32-gen{current_gen}"
+    )
+    challengers.append({
+        "model_name": "Mamba",
+        "version": mamba_model.metadata.version,
+        "model_instance": mamba_model,
+        "parameters": mamba_model.metadata.parameters,
+        "mutation": {"hidden_size": 32, "layers": 1}
+    })
     
-    # 5. Null Baseline
+    # 7. Null Baseline
     null_mod = UniformModel(version=f"null-gen{current_gen}")
     challengers.append({
         "model_name": "UniformNull",
@@ -120,6 +157,7 @@ def spawn_evolved_challengers(
     })
     
     return challengers
+
 
 def autonomous_evolution_cycle(last_seq_cursor: int = 0) -> Dict[str, Any]:
     """
@@ -267,7 +305,18 @@ def autonomous_evolution_cycle(last_seq_cursor: int = 0) -> Dict[str, Any]:
         
         for c in challengers:
             eval_metrics = evaluate_model_walk_forward(c["model_instance"], digits, initial_train_size=initial_train_size)
-            score = eval_metrics["null_advantage"] - (eval_metrics["mean_brier_score"] * 5.0) - (eval_metrics["calibration_error"] * 2.0)
+            
+            # Model efficiency / complexity penalty: - 0.001 * log(1 + param_count)
+            param_count = 0
+            if hasattr(c["model_instance"], "net"):
+                param_count = sum(p.numel() for p in c["model_instance"].net.parameters() if p.requires_grad)
+            elif hasattr(c["model_instance"], "W_out"):
+                param_count = c["model_instance"].W_out.size
+            elif hasattr(c["model_instance"], "counts"):
+                param_count = len(c["model_instance"].counts) * 10
+                
+            complexity_penalty = 0.001 * float(np.log1p(param_count))
+            score = eval_metrics["null_advantage"] - (eval_metrics["mean_brier_score"] * 5.0) - (eval_metrics["calibration_error"] * 2.0) - complexity_penalty
             
             cand_id = registry.register_candidate(
                 model_name=c["model_name"],

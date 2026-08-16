@@ -73,7 +73,25 @@ def mutate_model_parameters(
             # Layers: 1, 2, 3
             child["layers"] = random.choice([1, 2, 3])
         if random.random() < mutation_rate:
+            # Context length: 32, 64, 128, 256
+            child["context_length"] = random.choice([32, 64, 128, 256])
+        if random.random() < mutation_rate:
+            # Temperature: [0.5, 2.0]
+            child["temperature"] = round(max(0.5, min(2.0, child.get("temperature", 1.1) + random.choice([-0.2, 0.2]))), 2)
+
+    elif model_name in ["S4", "s4", "Mamba", "mamba"]:
+        if random.random() < mutation_rate:
+            # Hidden size: 16, 32, 48, 64
+            child["hidden_size"] = random.choice([16, 32, 48, 64])
+        if random.random() < mutation_rate:
+            # Layers: 1, 2, 3
+            child["layers"] = random.choice([1, 2, 3])
+        if random.random() < mutation_rate:
+            # Context length: 32, 64, 128, 256
+            child["context_length"] = random.choice([32, 64, 128, 256])
+        if random.random() < mutation_rate:
             # Temperature: [0.5, 2.0]
             child["temperature"] = round(max(0.5, min(2.0, child.get("temperature", 1.1) + random.choice([-0.2, 0.2]))), 2)
 
     return child
+

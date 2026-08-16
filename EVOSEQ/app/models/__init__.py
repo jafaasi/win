@@ -4,8 +4,11 @@ from .markov import MarkovModel
 from .hmm_model import DiscreteHMM, RegimeMonitor
 from .esn import EchoStateNetwork
 from .torch_base import SequenceNetwork
-from .transformer import TransformerSequenceModel, temperature_scale
+from .dataset import SequenceDataset
+from .transformer import CausalTransformer, TransformerSequenceModel, temperature_scale
+from .ssm import StateSpaceLayer, S4SequenceModel, MambaSequenceModel
 from .ensemble import MetaEnsemble, ensemble_probabilities
+from .distillation import KnowledgeDistiller
 
 __all__ = [
     "SequenceModel",
@@ -16,8 +19,14 @@ __all__ = [
     "RegimeMonitor",
     "EchoStateNetwork",
     "SequenceNetwork",
+    "SequenceDataset",
+    "CausalTransformer",
     "TransformerSequenceModel",
     "temperature_scale",
+    "StateSpaceLayer",
+    "S4SequenceModel",
+    "MambaSequenceModel",
     "MetaEnsemble",
-    "ensemble_probabilities"
+    "ensemble_probabilities",
+    "KnowledgeDistiller"
 ]
