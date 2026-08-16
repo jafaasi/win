@@ -8,7 +8,7 @@ import os
 # Ensure we can import from root modules when run via github actions
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.database import SessionLocal, save_live_draws, save_prediction
+from backend.database import SessionLocal, Draw, save_live_draws, save_prediction
 from api.index import exploit_all_loopholes
 
 API_ENDPOINT = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
@@ -47,10 +47,14 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
                         # 1. Sync draws & verify pending prediction logs
                         new_draws = save_live_draws(db, draws)
                         
-                        # 2. Extract full sequence history
-                        history = [int(d["number"]) for d in reversed(draws)]
+                        # 2. Extract full deep sequence history from Supabase (up to 2000 draws)
+                        db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(2000).all()
+                        if db_draws:
+                            history = [int(d.number) for d in reversed(db_draws)]
+                        else:
+                            history = [int(d["number"]) for d in reversed(draws)]
                         
-                        # 3. Train & run self-evolving AI ensemble
+                        # 3. Train & run self-evolving AI ensemble on full accumulated dataset
                         ai_result = exploit_all_loopholes(history)
                         next_issue = str(int(latest_issue) + 1)
                         
