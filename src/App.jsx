@@ -348,6 +348,8 @@ function App() {
         currentLevel={currentLevel}
         generation={activePrediction?.generation}
         totalSamplesTrained={activePrediction?.totalSamplesTrained}
+        championGenome={activePrediction?.championGenome}
+        latentRegime={activePrediction?.latentRegime}
       />
 
       {/* Persistent History & Verified Logs */}

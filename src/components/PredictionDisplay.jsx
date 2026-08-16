@@ -18,7 +18,9 @@ export default function PredictionDisplay({
   historyLength,
   currentLevel,
   generation,
-  totalSamplesTrained
+  totalSamplesTrained,
+  championGenome,
+  latentRegime
 }) {
   if (historyLength < 2) {
     return (
@@ -81,52 +83,67 @@ export default function PredictionDisplay({
               </span>
             </div>
 
-            {/* Lifelong Evolution HUD */}
+            {/* Lifelong Neuroevolution & Latent Regime HUD */}
             <div className="evolution-hud-banner" style={{
-              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(59, 130, 246, 0.12))',
-              border: '1px solid rgba(16, 185, 129, 0.25)',
+              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(99, 102, 241, 0.12))',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
               borderRadius: '10px',
-              padding: '0.55rem 0.75rem',
+              padding: '0.6rem 0.8rem',
               margin: '0.6rem 0',
               display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
+              flexDirection: 'column',
               gap: '0.4rem'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <span style={{ fontSize: '1.1rem' }}>🧬</span>
-                <div>
-                  <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#10b981', letterSpacing: '0.5px' }}>
-                    LIFELONG NEURAL EVOLUTION
-                  </div>
-                  <div style={{ fontSize: '0.67rem', color: 'var(--text-muted)' }}>
-                    Continuous Multi-Week Synaptic Training
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.4rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <span style={{ fontSize: '1.15rem' }}>🧬</span>
+                  <div>
+                    <div style={{ fontSize: '0.74rem', fontWeight: 800, color: '#10b981', letterSpacing: '0.5px' }}>
+                      DARWINIAN NEUROEVOLUTION ENGINE
+                    </div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                      Active Champion: <strong style={{ color: '#a78bfa' }}>{championGenome || 'Alpha-Momentum'}</strong>
+                    </div>
                   </div>
                 </div>
+                <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                  <span style={{
+                    background: 'rgba(16, 185, 129, 0.2)',
+                    color: '#34d399',
+                    padding: '0.18rem 0.5rem',
+                    borderRadius: '6px',
+                    fontSize: '0.7rem',
+                    fontWeight: 700
+                  }}>
+                    Gen #{generation || 1}
+                  </span>
+                  <span style={{
+                    background: 'rgba(99, 102, 241, 0.2)',
+                    color: '#818cf8',
+                    padding: '0.18rem 0.5rem',
+                    borderRadius: '6px',
+                    fontSize: '0.7rem',
+                    fontWeight: 700
+                  }}>
+                    6 Genomes Competing
+                  </span>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                <span style={{
-                  background: 'rgba(16, 185, 129, 0.18)',
-                  color: '#34d399',
-                  padding: '0.18rem 0.45rem',
+              {latentRegime && (
+                <div style={{
+                  background: 'rgba(0,0,0,0.25)',
                   borderRadius: '6px',
-                  fontSize: '0.68rem',
-                  fontWeight: 700
+                  padding: '0.3rem 0.5rem',
+                  fontSize: '0.7rem',
+                  color: '#e2e8f0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
                 }}>
-                  Gen #{generation || 1}
-                </span>
-                <span style={{
-                  background: 'rgba(59, 130, 246, 0.18)',
-                  color: '#60a5fa',
-                  padding: '0.18rem 0.45rem',
-                  borderRadius: '6px',
-                  fontSize: '0.68rem',
-                  fontWeight: 700
-                }}>
-                  {totalSamplesTrained ? `${totalSamplesTrained.toLocaleString()} Ingested` : `${historyLength} Ingested`}
-                </span>
-              </div>
+                  <span>PRNG Regime: <strong>{latentRegime}</strong></span>
+                  <span style={{ color: '#10b981', fontSize: '0.65rem' }}>● Self-Mutating Synapses</span>
+                </div>
+              )}
             </div>
 
             {/* Pattern Intelligence HUD */}
