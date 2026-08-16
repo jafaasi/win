@@ -141,3 +141,19 @@ def list_system_events(limit: int = 50) -> List[Dict[str, Any]]:
             }
             for evt in events
         ]
+
+@app.get("/meta/questions")
+def list_research_questions() -> List[Dict[str, Any]]:
+    from .meta.questions import ResearchQuestionManager
+    qm = ResearchQuestionManager()
+    return qm.get_agenda()
+
+@app.get("/meta/insights")
+def get_meta_insights() -> Dict[str, Any]:
+    from .meta.knowledge_graph import ModelKnowledgeGraph
+    kg = ModelKnowledgeGraph()
+    return {
+        "robust_families_under_drift": kg.query_robust_families_under_drift(),
+        "supported_hypotheses": kg.get_supported_scientific_hypotheses()
+    }
+

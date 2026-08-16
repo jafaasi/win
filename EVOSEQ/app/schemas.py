@@ -154,6 +154,45 @@ class ChampionHealthRecord(Base):
     disagreement = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class MetaExperimentRecord(Base):
+    __tablename__ = "meta_experiments"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    model_version_id = Column(BigInteger, index=True, nullable=True)
+    environment = Column(JSON, nullable=False)
+    model_descriptor = Column(JSON, nullable=False)
+    log_loss = Column(Float, nullable=True)
+    brier_score = Column(Float, nullable=True)
+    calibration_error = Column(Float, nullable=True)
+    stability_score = Column(Float, nullable=True)
+    null_advantage = Column(Float, nullable=True)
+    inference_latency = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class ResearchQuestionRecord(Base):
+    __tablename__ = "research_questions"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    question_code = Column(String, unique=True, index=True, nullable=False)
+    question = Column(String, nullable=False)
+    hypothesis = Column(String, nullable=True)
+    status = Column(String, default="OPEN") # OPEN, ACTIVE, RESOLVED, CLOSED
+    priority = Column(Float, default=0.5)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class ResearchHypothesisRecord(Base):
+    __tablename__ = "research_hypotheses"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    question_id = Column(BigInteger, index=True, nullable=True)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    status = Column(String, default="PRE_REGISTERED") # PRE_REGISTERED, SUPPORTED, WEAK_EVIDENCE, INCONCLUSIVE, REJECTED
+    evidence_score = Column(Float, default=0.0)
+    evidence_summary = Column(JSON, default=dict)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
 
 
 

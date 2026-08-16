@@ -297,13 +297,24 @@ def autonomous_evolution_cycle(last_seq_cursor: int = 0) -> Dict[str, Any]:
         )
         report["challengers_created"] = len(challengers)
         
+        # Meta-Learning: Research Director Environment Analysis & Bayesian Planning
+        from ..meta.director import ResearchDirector
+        from ..meta.types import ModelDescriptor
+        director = ResearchDirector()
+        env_state = director.analyze_environment(
+            digits,
+            drift_score=drift_result.composite_drift,
+            disagreement=disagreement
+        )
+        planned_challengers = director.plan_candidate_evaluation(challengers, env_state, budget=10)
+        
         initial_train_size = max(20, int(len(dev_seq) * 0.5))
         best_challenger = None
         best_score = -float("inf")
         evaluated_models = []
         evaluated_scores = []
         
-        for c in challengers:
+        for c in planned_challengers:
             eval_metrics = evaluate_model_walk_forward(c["model_instance"], digits, initial_train_size=initial_train_size)
             
             # Model efficiency / complexity penalty: - 0.001 * log(1 + param_count)
@@ -337,6 +348,14 @@ def autonomous_evolution_cycle(last_seq_cursor: int = 0) -> Dict[str, Any]:
             c["score"] = score
             evaluated_models.append(c["model_instance"])
             evaluated_scores.append(score)
+            
+            # Record meta-experiment
+            desc = ModelDescriptor(
+                family=c["model_name"],
+                context_length=c["parameters"].get("context_length", c["parameters"].get("order", 32)),
+                parameter_count=param_count
+            )
+            director.record_meta_experiment(cand_id, env_state, desc, eval_metrics)
             
             if score > best_score:
                 best_score = score
