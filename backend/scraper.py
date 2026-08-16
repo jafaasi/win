@@ -90,10 +90,10 @@ async def start_background_scraper():
                                 
                     new_pred = PredictionLog(
                         issue_number=next_issue,
-                        predicted_size=ai_result["prediction"],
-                        confidence=ai_result["confidence"],
-                        pattern_detected=ai_result["ai_mode"],
-                        martingale_level=current_level
+                        predicted_size=str(ai_result["prediction"]),
+                        confidence=float(ai_result["confidence"]),
+                        pattern_detected=str(ai_result["ai_mode"]),
+                        martingale_level=int(current_level)
                     )
                     db.add(new_pred)
                     db.commit()

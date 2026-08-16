@@ -244,7 +244,7 @@ function App() {
         nextDigit: activePrediction.targetNum || (isBig ? 7 : 2),
         nextSide: activePrediction.prediction
       },
-      expertThoughts: `Multi-model consensus aligned. Neural weights locked on ${activePrediction.prediction.toUpperCase()}.`,
+      expertThoughts: activePrediction.expertThoughts || `Multi-model consensus aligned. Loophole detection active on ${activePrediction.prediction.toUpperCase()}.`,
       pillars: [
         {
           id: 'pillar-1',
