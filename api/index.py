@@ -401,7 +401,7 @@ def exploit_all_loopholes(history):
         "loopholeInsight": loophole_insight
     }
 
-from backend.database import SessionLocal, Draw, PredictionLog
+from backend.database import SessionLocal, Draw, PredictionLog, save_live_draws
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
 
@@ -469,10 +469,13 @@ def compute_state(client_draws=None, init=False):
                 "time": "Verified Live"
             })
 
-    # If it's the initial load, fetch the deep 24/7 background history from Supabase
+    # If it's the initial load, sync live draws and fetch deep 24/7 background history from Supabase
     if init:
         try:
             db = SessionLocal()
+            if live_draws:
+                save_live_draws(db, live_draws)
+                
             recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(150).all()
             
             # Extract issue numbers to fetch the exact numbers

@@ -1,14 +1,14 @@
 name: 24/7 WinGo AI Worker
-
 on:
   schedule:
-    # Run every 5 minutes
-    - cron: '*/5 * * * *'
+    # Trigger every 4 hours to ensure an active runner is always running 24/7
+    - cron: '0 */4 * * *'
   workflow_dispatch:
 
 jobs:
   scrape-and-learn:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -22,7 +22,7 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Run Background Scraper & AI
+      - name: Run 24/7 Continuous Background AI Worker
         env:
           DATABASE_URL: "postgresql://postgres:rodrE0%2Dfyvnov%2Dgyvzuz@db.zyryxnifpduwsulglhdq.supabase.co:5432/postgres"
         run: |

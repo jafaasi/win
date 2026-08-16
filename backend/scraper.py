@@ -1,5 +1,6 @@
 import asyncio
 import httpx
+import time
 from datetime import datetime
 import sys
 import os
@@ -13,7 +14,7 @@ from api.index import exploit_all_loopholes
 API_ENDPOINT = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
 
 async def fetch_wingo_draws():
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             response = await client.get(f"{API_ENDPOINT}?ts={datetime.utcnow().timestamp()}")
             if response.status_code == 200:
@@ -21,41 +22,60 @@ async def fetch_wingo_draws():
                 if "data" in data and "list" in data["data"]:
                     return data["data"]["list"]
         except Exception as e:
-            print(f"Scraper Error: {e}")
+            print(f"Fetch Note: {e}")
     return []
 
-async def run_scraper_once():
-    print("🚀 Running 24/7 Background Deep Learning Scraper...")
-    draws = await fetch_wingo_draws()
-    if len(draws) > 0:
-        db = SessionLocal()
+async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
+    start_time = time.time()
+    print(f"🚀 Starting 24/7 WinGo AI Deep Learning Daemon (Session limit: {max_duration_seconds // 3600} hours)...")
+    
+    last_processed_issue = None
+    draws_collected = 0
+    
+    while time.time() - start_time < max_duration_seconds:
         try:
-            # Save the draws and update any pending prediction win/loss records
-            new_draws = save_live_draws(db, draws)
-            print(f"💾 Synced {new_draws} new draws to Supabase.")
+            draws = await fetch_wingo_draws()
+            if draws:
+                latest_issue = str(draws[0]["issueNumber"])
+                
+                if latest_issue != last_processed_issue:
+                    last_processed_issue = latest_issue
+                    draws_collected += 1
+                    
+                    db = SessionLocal()
+                    try:
+                        # 1. Sync draws & verify pending prediction logs
+                        new_draws = save_live_draws(db, draws)
+                        
+                        # 2. Extract full sequence history
+                        history = [int(d["number"]) for d in reversed(draws)]
+                        
+                        # 3. Train & run self-evolving AI ensemble
+                        ai_result = exploit_all_loopholes(history)
+                        next_issue = str(int(latest_issue) + 1)
+                        
+                        # 4. Save prediction for the upcoming draw
+                        save_prediction(
+                            db=db,
+                            issue_number=next_issue,
+                            prediction=ai_result["prediction"],
+                            confidence=ai_result["confidence"],
+                            pattern_name=ai_result["patternName"]
+                        )
+                        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Draw #{latest_issue} (Number: {draws[0]['number']}) -> Next #{next_issue} Predicted: {ai_result['prediction']} ({ai_result['confidence']}%) | Loophole: {ai_result['patternName']}")
+                    finally:
+                        db.close()
+        except Exception as e:
+            print(f"Daemon Cycle Note: {e}")
             
-            # Now, generate the prediction for the NEXT issue
-            latest_issue = str(draws[0]["issueNumber"])
-            next_issue = str(int(latest_issue) + 1)
-            
-            # Build history from draws
-            history = [int(d["number"]) for d in reversed(draws)]
-            
-            # Predict using deterministic DeepMLP
-            ai_result = exploit_all_loopholes(history)
-            
-            save_prediction(
-                db=db,
-                issue_number=next_issue,
-                prediction=ai_result["prediction"],
-                confidence=ai_result["confidence"],
-                pattern_name=ai_result["patternName"]
-            )
-            print(f"🧠 Logged Prediction for #{next_issue}: {ai_result['prediction']} ({ai_result['confidence']}%)")
-        finally:
-            db.close()
-    else:
-        print("⚠️ Failed to fetch live draws.")
+        # Poll every 10 seconds to catch every 30-second draw instantly
+        await asyncio.sleep(10)
+
+    print(f"✅ Daemon session finished smoothly. Processed {draws_collected} draws.")
 
 if __name__ == "__main__":
-    asyncio.run(run_scraper_once())
+    # If run with --once argument, run a single shot, otherwise run continuous daemon
+    if len(sys.argv) > 1 and sys.argv[1] == "--once":
+        asyncio.run(run_scraper_daemon(max_duration_seconds=15))
+    else:
+        asyncio.run(run_scraper_daemon(max_duration_seconds=18000))
