@@ -339,24 +339,27 @@ def compute_state(client_draws=None):
             "expertThoughts": ai["loopholeInsight"]
         }
 
-    # Generate historical round logs
+    # Generate strictly verified historical round logs
     round_logs = []
-    if len(history) >= 2:
+    if len(history) >= 3:
         for idx in range(len(history) - 1, 0, -1):
             n = history[idx]
             actBS = to_big_small(n)
-            prev = history[idx - 1]
-            targBS = to_big_small(prev)
+            # Run the actual AI intelligence on preceding history
+            sub_history = history[:idx]
+            historical_ai = exploit_all_loopholes(sub_history)
+            targBS = historical_ai["prediction"]
+            targNum = historical_ai["targetNum"]
             is_w = (targBS == actBS)
             round_logs.append({
                 "id": idx,
                 "issue": f"#{str(int(latest_issue) - (len(history) - 1 - idx))[-5:]}",
                 "targetBS": targBS,
-                "targetNum": 7 if targBS == 'Big' else 2,
+                "targetNum": targNum,
                 "actualBS": actBS,
                 "isWin": is_w,
                 "level": 1 if is_w else 2,
-                "pattern": ai["patternName"],
+                "pattern": historical_ai["patternName"],
                 "time": "Verified"
             })
 
