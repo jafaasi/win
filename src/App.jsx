@@ -78,7 +78,9 @@ function App() {
       }
 
       // 2. Transmit to Python Deep Learning Engine
-      const response = await fetch(BACKEND_URL, {
+      const isInit = lastSyncTime === null;
+      const url = `${BACKEND_URL}${isInit ? '?init=true' : ''}`;
+      const response = await fetch(url, {
         method: clientDraws.length > 0 ? 'POST' : 'GET',
         headers: { 'Content-Type': 'application/json' },
         body: clientDraws.length > 0 ? JSON.stringify(clientDraws) : undefined

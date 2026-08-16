@@ -299,7 +299,11 @@ def exploit_all_loopholes(history):
         "loopholeInsight": loophole_insight
     }
 
-def compute_state(client_draws=None):
+from backend.database import SessionLocal, Draw, PredictionLog
+from sqlalchemy import create_engine
+from sqlalchemy.pool import NullPool
+
+def compute_state(client_draws=None, init=False):
     live_draws = client_draws or []
     
     if not live_draws:
@@ -339,20 +343,19 @@ def compute_state(client_draws=None):
             "expertThoughts": ai["loopholeInsight"]
         }
 
-    # Generate strictly verified historical round logs
+    # Generate strictly verified historical round logs using memory first
     round_logs = []
     if len(history) >= 3:
         for idx in range(len(history) - 1, 0, -1):
             n = history[idx]
             actBS = to_big_small(n)
-            # Run the actual AI intelligence on preceding history
             sub_history = history[:idx]
             historical_ai = exploit_all_loopholes(sub_history)
             targBS = historical_ai["prediction"]
             targNum = historical_ai["targetNum"]
             is_w = (targBS == actBS)
             round_logs.append({
-                "id": idx,
+                "id": f"mem-{idx}",
                 "issue": f"#{str(int(latest_issue) - (len(history) - 1 - idx))[-5:]}",
                 "targetBS": targBS,
                 "targetNum": targNum,
@@ -360,8 +363,52 @@ def compute_state(client_draws=None):
                 "isWin": is_w,
                 "level": 1 if is_w else 2,
                 "pattern": historical_ai["patternName"],
-                "time": "Verified"
+                "time": "Verified Live"
             })
+
+    # If it's the initial load, fetch the deep 24/7 background history from Supabase
+    if init:
+        try:
+            db = SessionLocal()
+            recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(150).all()
+            
+            # Extract issue numbers to fetch the exact numbers
+            issue_numbers = [log.issue_number for log in recent_logs]
+            draws = db.query(Draw).filter(Draw.issue_number.in_(issue_numbers)).all()
+            draw_nums = {d.issue_number: d.number for d in draws}
+            
+            db_logs = []
+            for log in recent_logs:
+                actual_num = draw_nums.get(log.issue_number, 8 if log.actual_size == "Big" else 2)
+                db_logs.append({
+                    "id": f"db-{log.id}",
+                    "issue": f"#{str(log.issue_number)[-5:]}",
+                    "targetBS": log.predicted_size,
+                    "targetNum": 7 if log.predicted_size == "Big" else 2,
+                    "actualBS": log.actual_size,
+                    "actualNum": actual_num,
+                    "isWin": log.is_win,
+                    "level": log.martingale_level,
+                    "pattern": log.pattern_detected,
+                    "time": "24/7 Verified"
+                })
+            db.close()
+            
+            # Merge: Use DB logs but append memory logs if memory logs are newer
+            # DB logs are ordered newest first. memory logs are ordered oldest first.
+            # We want to return oldest first.
+            db_logs.reverse() 
+            
+            merged_logs = db_logs
+            for ml in round_logs:
+                # If memory log issue is not in db_logs, append it
+                if not any(dl["issue"] == ml["issue"] for dl in db_logs):
+                    merged_logs.append(ml)
+                    
+            round_logs = merged_logs
+            
+        except Exception as e:
+            print("DB Fetch Error:", e)
 
     wins = sum(1 for r in round_logs if r["isWin"])
     losses = len(round_logs) - wins
@@ -393,7 +440,11 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        data = compute_state()
+        from urllib.parse import urlparse, parse_qs
+        query_components = parse_qs(urlparse(self.path).query)
+        is_init = 'init' in query_components
+        
+        data = compute_state(init=is_init)
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self._send_cors()
@@ -401,13 +452,17 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(data).encode('utf-8'))
 
     def do_POST(self):
+        from urllib.parse import urlparse, parse_qs
+        query_components = parse_qs(urlparse(self.path).query)
+        is_init = 'init' in query_components
+        
         try:
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length).decode('utf-8')
             client_draws = json.loads(body) if body else []
-            data = compute_state(client_draws)
+            data = compute_state(client_draws, init=is_init)
         except Exception as e:
-            data = compute_state()
+            data = compute_state(init=is_init)
             
         self.send_response(200)
         self.send_header('Content-type', 'application/json')

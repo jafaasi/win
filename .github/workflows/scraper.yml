@@ -26,14 +26,4 @@ jobs:
         env:
           DATABASE_URL: "postgresql://postgres:rodrE0%2Dfyvnov%2Dgyvzuz@db.zyryxnifpduwsulglhdq.supabase.co:5432/postgres"
         run: |
-          python -c "
-          import sys
-          sys.path.append('.')
-          from api.index import SessionLocal, sync_latest_draws, run_ai_prediction
-          db = SessionLocal()
-          print('Syncing draws to Supabase...')
-          sync_latest_draws(db)
-          ai = run_ai_prediction(db)
-          print('AI Prediction:', ai)
-          db.close()
-          "
+          python backend/scraper.py
