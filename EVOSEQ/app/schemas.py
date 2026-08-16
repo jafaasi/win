@@ -118,6 +118,43 @@ class ResearchExperimentRecord(Base):
     metadata_json = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class SystemEventRecord(Base):
+    __tablename__ = "system_events"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    event_type = Column(String, index=True, nullable=False)
+    sequence_no = Column(BigInteger, index=True, nullable=True)
+    model_version_id = Column(BigInteger, index=True, nullable=True)
+    payload = Column(JSON, default=dict)
+    status = Column(String, default="completed")
+    error_message = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class WorkerStateRecord(Base):
+    __tablename__ = "worker_state"
+
+    worker_name = Column(String, primary_key=True)
+    last_processed_sequence = Column(BigInteger, default=0)
+    status = Column(String, default="idle")
+    records_processed = Column(BigInteger, default=0)
+    last_success_at = Column(DateTime, nullable=True)
+    last_failure_at = Column(DateTime, nullable=True)
+    last_error = Column(String, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+class ChampionHealthRecord(Base):
+    __tablename__ = "champion_health"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    model_version_id = Column(BigInteger, index=True, nullable=False)
+    sequence_no = Column(BigInteger, index=True, nullable=False)
+    health_score = Column(Float, nullable=True)
+    drift_score = Column(Float, nullable=True)
+    calibration_error = Column(Float, nullable=True)
+    disagreement = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 
 
 

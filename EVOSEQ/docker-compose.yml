@@ -2,18 +2,39 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:15-alpine
-    container_name: evoseq-postgres
-    restart: always
+    image: postgres:17-alpine
+    container_name: evoseq_postgres
     environment:
-      POSTGRES_USER: evoseq
-      POSTGRES_PASSWORD: evoseq_secret_password
       POSTGRES_DB: evoseq
+      POSTGRES_USER: evoseq
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-evoseq_secure_pass}
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d
+      - evoseq_pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  api:
+    build: .
+    container_name: evoseq_api
+    command: uvicorn app.api:app --host 0.0.0.0 --port 8000
+    environment:
+      DATABASE_URL: postgresql://evoseq:${POSTGRES_PASSWORD:-evoseq_secure_pass}@postgres:5432/evoseq
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  orchestrator:
+    build: .
+    container_name: evoseq_orchestrator
+    command: python -m app.workers.orchestrator_daemon
+    environment:
+      DATABASE_URL: postgresql://evoseq:${POSTGRES_PASSWORD:-evoseq_secure_pass}@postgres:5432/evoseq
+    depends_on:
+      - postgres
+    restart: unless-stopped
 
 volumes:
-  postgres_data:
+  evoseq_pgdata:

@@ -118,6 +118,34 @@ class ModelRegistry:
             session.commit()
             return True
 
+    def put_on_probation(self, model_id: int, reason: str = "Candidate passed referee, entering probation") -> bool:
+        with SessionLocal() as session:
+            model = session.query(ModelVersionRecord).filter(ModelVersionRecord.id == model_id).first()
+            if not model:
+                return False
+            model.status = "probation"
+            event = ModelEvent(
+                event_type="ENTERED_PROBATION",
+                model_version_id=model.id,
+                details={"reason": reason}
+            )
+            session.add(event)
+            session.commit()
+            return True
+
+    def rollback(self, current_champ_id: int, fallback_champ_id: int, reason: str = "Probation degraded") -> bool:
+        with SessionLocal() as session:
+            cur = session.query(ModelVersionRecord).filter(ModelVersionRecord.id == current_champ_id).first()
+            prev = session.query(ModelVersionRecord).filter(ModelVersionRecord.id == fallback_champ_id).first()
+            if not cur or not prev:
+                return False
+            cur.status = "rollback"
+            prev.status = "champion"
+            session.add(ModelEvent(event_type="ROLLBACK_TRIGGERED", model_version_id=cur.id, details={"reason": reason}))
+            session.add(ModelEvent(event_type="REINSTATED_AS_CHAMPION", model_version_id=prev.id, details={"reason": "Reinstated after rollback"}))
+            session.commit()
+            return True
+
     def retire(self, model_id: int, reason: str = "Underperformed on out-of-sample test") -> bool:
         with SessionLocal() as session:
             model = session.query(ModelVersionRecord).filter(ModelVersionRecord.id == model_id).first()
@@ -132,6 +160,7 @@ class ModelRegistry:
             session.add(event)
             session.commit()
             return True
+
 
     def get_population_summary(self) -> Dict[str, int]:
         with SessionLocal() as session:
