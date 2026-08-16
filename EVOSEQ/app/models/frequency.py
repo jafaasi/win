@@ -1,4 +1,4 @@
-from typing import Sequence, Optional, Union
+from typing import Sequence, Optional, Union, Any
 import numpy as np
 from .base import SequenceModel
 
@@ -9,12 +9,13 @@ class FrequencyBaseline(SequenceModel):
     Every higher-order Markov, HMM, ESN, Transformer, or SSM candidate must
     statistically outperform this memoryless marginal baseline under identical future holdouts.
     """
+    name = "frequency"
 
     def __init__(self, smoothing: float = 1e-6):
         self.smoothing = smoothing
         self.probabilities: np.ndarray = np.full(10, 0.1, dtype=np.float64)
 
-    def fit(self, sequence: Sequence[int]) -> "FrequencyBaseline":
+    def fit(self, sequence: Sequence[int], y: Optional[Any] = None) -> "FrequencyBaseline":
         seq = np.asarray(sequence, dtype=np.int64)
         if len(seq) == 0:
             self.probabilities = np.full(10, 0.1, dtype=np.float64)
@@ -25,11 +26,14 @@ class FrequencyBaseline(SequenceModel):
         self.probabilities = counts / counts.sum()
         return self
 
-    def update(self, new_observations: Sequence[int]) -> "FrequencyBaseline":
-        # Incremental update
+    def update(self, new_observations: Sequence[int], y: Optional[Any] = None) -> "FrequencyBaseline":
         return self.fit(new_observations)
 
-    def predict_proba(self, context: Optional[Sequence[int]] = None) -> np.ndarray:
+    def predict_proba(self, context: Optional[Union[Sequence[int], int, np.ndarray]] = None) -> np.ndarray:
+        if isinstance(context, int):
+            return np.repeat(self.probabilities[None, :], context, axis=0)
+        elif isinstance(context, np.ndarray) and context.ndim == 2:
+            return np.repeat(self.probabilities[None, :], len(context), axis=0)
         return self.probabilities.copy()
 
     def save(self, path: str) -> None:

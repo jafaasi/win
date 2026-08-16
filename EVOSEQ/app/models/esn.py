@@ -174,3 +174,6 @@ class EchoStateNetwork(SequenceModel):
         model.W_out = data["W_out"]
         model.metadata = data.get("metadata", model.metadata)
         return model
+
+ESN = EchoStateNetwork
+

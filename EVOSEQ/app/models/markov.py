@@ -7,7 +7,7 @@ class MarkovModel(SequenceModel):
 
     def __init__(
         self,
-        order: int = 3,
+        order: int = 1,
         smoothing: float = 1.0,
         version: str = "markov-v1"
     ):
@@ -15,7 +15,7 @@ class MarkovModel(SequenceModel):
         self.smoothing = smoothing
         self.counts: Dict[Tuple[int, ...], np.ndarray] = {}
         self.metadata = ModelMetadata(
-            name="Markov",
+            name=f"Markov-{order}",
             version=version,
             parameters={"order": order, "smoothing": smoothing}
         )
@@ -27,7 +27,7 @@ class MarkovModel(SequenceModel):
             return self
             
         for i in range(self.order, len(sequence)):
-            context = tuple(sequence[i-self.order:i])
+            context = tuple(sequence[i - self.order: i])
             target = sequence[i]
             if context not in self.counts:
                 self.counts[context] = np.zeros(10, dtype=np.float64)
@@ -40,25 +40,42 @@ class MarkovModel(SequenceModel):
             return self
             
         for i in range(self.order, len(sequence)):
-            context = tuple(sequence[i-self.order:i])
+            context = tuple(sequence[i - self.order: i])
             target = sequence[i]
             if context not in self.counts:
                 self.counts[context] = np.zeros(10, dtype=np.float64)
             self.counts[context][target] += 1.0
         return self
 
-    def predict_proba(self, X: Union[np.ndarray, list]) -> np.ndarray:
-        context = list(X)
-        if len(context) < self.order:
+    def predict_one_step(self, context: Sequence[int]) -> np.ndarray:
+        ctx_list = list(context)
+        if len(ctx_list) < self.order:
             return np.full(10, 0.1, dtype=np.float64)
             
-        ctx = tuple(context[-self.order:])
+        ctx = tuple(ctx_list[-self.order:])
         counts = self.counts.get(ctx, np.zeros(10, dtype=np.float64))
         probabilities = counts + self.smoothing
         total = probabilities.sum()
         if total == 0:
             return np.full(10, 0.1, dtype=np.float64)
         return probabilities / total
+
+    def predict_proba(self, X: Union[np.ndarray, list]) -> np.ndarray:
+        seq = list(X)
+        if len(seq) == 0:
+            return np.full(10, 0.1, dtype=np.float64)
+        # If single context
+        return self.predict_one_step(seq)
+
+    def predict_sequence(self, sequence: Sequence[int]) -> np.ndarray:
+        """Generates probability distribution for every observation in the sequence."""
+        seq = list(sequence)
+        preds = []
+        for i in range(len(seq)):
+            start = max(0, i - self.order + 1)
+            ctx = seq[start: i + 1]
+            preds.append(self.predict_one_step(ctx))
+        return np.asarray(preds)
 
     def save(self, path: str) -> None:
         save_data = {

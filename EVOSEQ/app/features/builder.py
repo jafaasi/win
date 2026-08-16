@@ -1,4 +1,4 @@
-from typing import Sequence, List, Dict, Any, Optional
+from typing import Sequence, List, Dict, Any, Optional, Tuple
 import numpy as np
 
 from .types import SequenceFeatures
@@ -10,6 +10,64 @@ from .autocorrelation import autocorrelation
 from .runs import current_run_length
 from .transitions import transition_matrix, transition_entropy
 from .lz import lz_complexity
+
+def digit_features(digit: int, size: int, color: int, parity: int) -> np.ndarray:
+    """Constructs a 17-dimensional one-hot categorical feature vector."""
+    vector = np.zeros(17, dtype=np.float32)
+    if 0 <= digit <= 9:
+        vector[digit] = 1.0
+    if 0 <= size <= 1:
+        vector[10 + size] = 1.0
+    if 0 <= color <= 2:
+        vector[12 + color] = 1.0
+    if 0 <= parity <= 1:
+        vector[15 + parity] = 1.0
+    return vector
+
+def build_feature_matrix(df: Any) -> np.ndarray:
+    """Builds a full [N, 17] categorical feature matrix from a dataframe or list of objects."""
+    if hasattr(df, "itertuples"):
+        return np.vstack([
+            digit_features(int(row.digit), int(row.size), int(row.color), int(row.parity))
+            for row in df.itertuples()
+        ])
+    else:
+        return np.vstack([
+            digit_features(int(row.digit if hasattr(row, 'digit') else row['digit']),
+                           int(row.size if hasattr(row, 'size') else row['size']),
+                           int(row.color if hasattr(row, 'color') else row['color']),
+                           int(row.parity if hasattr(row, 'parity') else row['parity']))
+            for row in df
+        ])
+
+def create_supervised_dataset(
+    features: Sequence[np.ndarray],
+    digits: Sequence[int],
+    context_length: int = 128
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Constructs strictly causal temporal dataset:
+    X: [N, context_length, 17]
+    y: [N]
+    """
+    X = []
+    y = []
+    feat_arr = np.asarray(features, dtype=np.float32)
+    dig_arr = np.asarray(digits, dtype=np.int64)
+    
+    for i in range(context_length, len(feat_arr)):
+        X.append(feat_arr[i - context_length: i])
+        y.append(dig_arr[i])
+        
+    if not X:
+        return np.empty((0, context_length, feat_arr.shape[-1] if len(feat_arr) > 0 else 17), dtype=np.float32), np.empty((0,), dtype=np.int64)
+        
+    return np.asarray(X, dtype=np.float32), np.asarray(y, dtype=np.int64)
+
+def extract_causal_feature_vector(digits: Sequence[int], window_size: int = 64) -> np.ndarray:
+    """Extracts instantaneous 36-dimensional causal feature vector."""
+    feat = build_features(digits[-window_size:] if len(digits) > window_size else digits)
+    return feat.vector
 
 def build_features(
     digits: Sequence[int],
@@ -124,13 +182,9 @@ def build_temporal_tensor(
     context_length: int = 128,
     window_size: int = 64
 ) -> np.ndarray:
-    """
-    Constructs a causal temporal feature matrix of shape [context_length, feature_dim]
-    X_t = [f_{t-L+1}, ..., f_{t-1}, f_t]
-    """
+    """Constructs a causal temporal feature matrix of shape [context_length, feature_dim]."""
     sequence = list(sequence)
     if len(sequence) < context_length:
-        # Prepend pad with first symbol
         pad_size = context_length - len(sequence)
         sequence = [sequence[0]] * pad_size + sequence
         
@@ -138,10 +192,9 @@ def build_temporal_tensor(
     temporal_rows = []
     
     for i in range(start_idx, len(sequence)):
-        # Causal window ending at step i
         sub_seq = sequence[max(0, i + 1 - window_size):i + 1]
         feat = build_features(sub_seq)
         temporal_rows.append(feat.vector)
         
-    tensor = np.asarray(temporal_rows, dtype=np.float32) # [context_length, feature_dim]
+    tensor = np.asarray(temporal_rows, dtype=np.float32)
     return tensor

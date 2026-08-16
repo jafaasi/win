@@ -3,20 +3,23 @@ from typing import Sequence, Union
 
 def log_loss(probabilities: Union[np.ndarray, Sequence[float]], actual: int) -> float:
     """Calculates cross-entropy loss on a multiclass probability vector."""
-    probs = np.asarray(probabilities, dtype=np.float64)
-    p = float(np.clip(probs[actual], 1e-15, 1.0))
+    probs = np.asarray(probabilities, dtype=np.float64).squeeze()
+    if probs.ndim == 0:
+        return 2.3026
+    actual_idx = int(actual)
+    p = float(np.clip(probs[actual_idx], 1e-15, 1.0))
     return float(-np.log(p))
 
 def brier_score(probabilities: Union[np.ndarray, Sequence[float]], actual: int) -> float:
     """Calculates multiclass Brier score (mean squared error of probability vector)."""
-    probs = np.asarray(probabilities, dtype=np.float64)
+    probs = np.asarray(probabilities, dtype=np.float64).squeeze()
     target = np.zeros(len(probs), dtype=np.float64)
-    target[actual] = 1.0
+    target[int(actual)] = 1.0
     return float(np.mean((probs - target) ** 2))
 
 def entropy(probabilities: Union[np.ndarray, Sequence[float]]) -> float:
     """Calculates Shannon entropy in bits."""
-    probs = np.asarray(probabilities, dtype=np.float64)
+    probs = np.asarray(probabilities, dtype=np.float64).squeeze()
     p = probs[probs > 0]
     if len(p) == 0:
         return 0.0
@@ -32,8 +35,9 @@ def calibration_error(predicted_probs: Sequence[np.ndarray], actuals: Sequence[i
     bin_conf_sum = np.zeros(n_bins)
     
     for probs, actual in zip(predicted_probs, actuals):
-        pred_label = int(np.argmax(probs))
-        conf = float(probs[pred_label])
+        probs_sq = np.asarray(probs, dtype=np.float64).squeeze()
+        pred_label = int(np.argmax(probs_sq))
+        conf = float(probs_sq[pred_label])
         bin_idx = min(n_bins - 1, int(conf * n_bins))
         
         bin_total[bin_idx] += 1
