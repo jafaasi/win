@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/draws",
+      "destination": "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/index.py"
     }

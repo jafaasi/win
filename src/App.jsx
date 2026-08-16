@@ -3,7 +3,7 @@ import PredictionDisplay from './components/PredictionDisplay';
 import HistoryLog from './components/HistoryLog';
 
 const BACKEND_URL = '/api/state';
-const WINGO_API = 'https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json';
+const WINGO_API = '/api/draws';
 
 const STORAGE_KEYS = {
   MASTER_LOGS: 'WINGO_MASTER_ROUND_LOGS_V4',
@@ -65,16 +65,22 @@ function App() {
 
   const fetchBackendState = async () => {
     try {
-      // 1. Fetch live draws directly from official WinGo API
+      // 1. Fetch live draws directly from same-origin proxy
       let clientDraws = [];
       try {
         const wingoRes = await fetch(`${WINGO_API}?ts=${Date.now()}`);
         if (wingoRes.ok) {
           const wData = await wingoRes.json();
           clientDraws = wData?.data?.list || [];
+        } else {
+          const fallbackRes = await fetch(`https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json?ts=${Date.now()}`);
+          if (fallbackRes.ok) {
+            const fbData = await fallbackRes.json();
+            clientDraws = fbData?.data?.list || [];
+          }
         }
       } catch (e) {
-        console.warn("Direct WinGo fetch note:", e);
+        console.warn("WinGo draw fetch note:", e);
       }
 
       // 2. Transmit to Python Deep Learning Engine
