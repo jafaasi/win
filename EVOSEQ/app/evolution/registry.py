@@ -188,3 +188,29 @@ class ModelRegistry:
                 for r in records
             ]
 
+    def ensure_initial_population(self) -> None:
+        """Ensures baseline default models exist in the registry."""
+        with SessionLocal() as session:
+            existing = session.query(ModelVersionRecord).first()
+            if not existing:
+                self.register_candidate(
+                    model_name="Uniform",
+                    version="v1.0",
+                    parameters={},
+                    status="champion"
+                )
+                self.register_candidate(
+                    model_name="Markov",
+                    version="mkv-ord1-v1.0",
+                    parameters={"order": 1, "smoothing": 0.5},
+                    status="challenger"
+                )
+                self.register_candidate(
+                    model_name="Markov",
+                    version="mkv-ord2-v1.0",
+                    parameters={"order": 2, "smoothing": 0.5},
+                    status="challenger"
+                )
+
+
+
