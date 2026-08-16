@@ -394,16 +394,25 @@ def compute_state(client_draws=None, init=False):
                 })
             db.close()
             
-            # Merge: Use DB logs but append memory logs if memory logs are newer
-            # DB logs are ordered newest first. memory logs are ordered oldest first.
-            # We want to return oldest first.
-            db_logs.reverse() 
+            # DB logs are ordered NEWEST FIRST.
+            # Memory logs (round_logs) are ordered NEWEST FIRST.
+            # We want the final returned list to be NEWEST FIRST.
             
-            merged_logs = db_logs
+            # Deduplicate by issue tag
+            merged_logs = []
+            seen_issues = set()
+            
+            # Add memory logs first (they are the absolute freshest, live data)
             for ml in round_logs:
-                # If memory log issue is not in db_logs, append it
-                if not any(dl["issue"] == ml["issue"] for dl in db_logs):
+                if ml["issue"] not in seen_issues:
                     merged_logs.append(ml)
+                    seen_issues.add(ml["issue"])
+                    
+            # Add DB logs next (they fill in the history gap)
+            for dl in db_logs:
+                if dl["issue"] not in seen_issues:
+                    merged_logs.append(dl)
+                    seen_issues.add(dl["issue"])
                     
             round_logs = merged_logs
             
