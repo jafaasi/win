@@ -93,77 +93,49 @@ function App() {
 
         setHistory(prevHist => {
           const newNumbers = clientDraws.slice().reverse().map(d => Number(d.number));
-          const combined = [...prevHist];
-          newNumbers.forEach(n => {
-            if (!combined.length || combined[combined.length - 1] !== n) {
-              combined.push(n);
-            }
-          });
-          return combined.length > 0 ? combined.slice(-1000) : newNumbers;
+          // Since clientDraws is a sliding window, we can just use the exact sequence of numbers from the API.
+          // However, to keep a long history, we should only append NEW issues.
+          // The safest way is to rebuild history from roundLogs which is guaranteed to be in sync.
+          return newNumbers;
         });
 
-        // 4. Strict Win/Loss Verification based on EXACT screen predictions
-        setRoundLogs(prevLogs => {
-          const existingIssues = new Set(prevLogs.map(l => l.issue));
-          const updatedLogs = [...prevLogs];
-          let updatedLvl = currentLevel;
+        // 4. Strict Win/Loss Verification using Deterministic Backend Logs
+        if (data && data.roundLogs) {
+          setRoundLogs(prevLogs => {
+            const existingIssues = new Set(prevLogs.map(l => l.issue));
+            const updatedLogs = [...prevLogs];
+            let updatedLvl = currentLevel;
 
-          clientDraws.slice().reverse().forEach((draw) => {
-            const issueStr = String(draw.issueNumber);
-            const issueTag = `#${issueStr.slice(-5)}`;
-
-            if (!existingIssues.has(issueTag)) {
-              const num = Number(draw.number);
-              const actBS = toBigSmall(num);
-              
-              // Retrieve what the AI *actually* predicted for THIS issue
-              const pending = pendingPredictions.current[issueStr];
-              
-              let targetBS = 'Big';
-              let targetNum = 7;
-              let pattern = 'Quantum MLP Neural Network';
-              let betLvl = updatedLvl;
-
-              if (pending) {
-                targetBS = pending.targetBS;
-                targetNum = pending.targetNum || (targetBS === 'Big' ? 7 : 2);
-                pattern = pending.pattern || pattern;
-                betLvl = pending.level || betLvl;
-                delete pendingPredictions.current[issueStr];
-              } else {
-                // Historical fallback if opened mid-session
-                targetBS = toBigSmall(num >= 5 ? 4 : 8); // Inverse entropy heuristic
-                targetNum = targetBS === 'Big' ? 7 : 2;
+            // data.roundLogs comes sorted from oldest to newest in backend, so we reverse it to process newest first,
+            // or we can just iterate and unshift.
+            // Wait, backend returns them in chronological order or reverse?
+            // backend: for idx in range(len(history) - 1, 0, -1): append(...) -> oldest first.
+            // We want newest at the top of updatedLogs, so we should unshift them as they come.
+            const incomingLogs = data.roundLogs;
+            
+            // Re-calculate levels to be strictly 1, 2, 3 based on streak
+            incomingLogs.reverse().forEach((log) => {
+              if (!existingIssues.has(log.issue)) {
+                
+                // Track martingale
+                if (log.isWin) {
+                  updatedLvl = 1;
+                } else {
+                  updatedLvl = updatedLvl < 3 ? updatedLvl + 1 : 1;
+                }
+                
+                log.level = updatedLvl;
+                log.id = `${log.issue}-${Date.now()}`;
+                
+                updatedLogs.unshift(log);
+                existingIssues.add(log.issue);
               }
+            });
 
-              const isWin = (targetBS === actBS);
-              
-              updatedLogs.unshift({
-                id: `${draw.issueNumber}-${Date.now()}`,
-                issue: issueTag,
-                targetBS: targetBS,
-                targetNum: targetNum,
-                actualNum: num,
-                actualBS: actBS,
-                isWin: isWin,
-                level: betLvl,
-                pattern: pattern,
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-              });
-
-              existingIssues.add(issueTag);
-
-              if (isWin) {
-                updatedLvl = 1;
-              } else {
-                updatedLvl = updatedLvl < 3 ? updatedLvl + 1 : 1;
-              }
-            }
+            setCurrentLevel(updatedLvl);
+            return updatedLogs.slice(0, 1000);
           });
-
-          setCurrentLevel(updatedLvl);
-          return updatedLogs.slice(0, 1000);
-        });
+        }
       }
 
       // 5. Update Active Prediction & Register in Pending Map for exact next verification
