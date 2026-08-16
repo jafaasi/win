@@ -341,6 +341,8 @@ function App() {
         pillars={predictionData.pillars || []}
         historyLength={history.length}
         currentLevel={currentLevel}
+        generation={activePrediction?.generation}
+        totalSamplesTrained={activePrediction?.totalSamplesTrained}
       />
 
       {/* Persistent History & Verified Logs */}

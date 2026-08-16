@@ -16,7 +16,9 @@ export default function PredictionDisplay({
   expertThoughts,
   pillars = [],
   historyLength,
-  currentLevel
+  currentLevel,
+  generation,
+  totalSamplesTrained
 }) {
   if (historyLength < 2) {
     return (
@@ -77,6 +79,54 @@ export default function PredictionDisplay({
                 {currentLevel === 2 && 'LEVEL 2 · 3X (MARTINGALE RECOVERY)'}
                 {currentLevel === 3 && 'LEVEL 3 · 9X (VIP GUARANTEE STRIKE)'}
               </span>
+            </div>
+
+            {/* Lifelong Evolution HUD */}
+            <div className="evolution-hud-banner" style={{
+              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(59, 130, 246, 0.12))',
+              border: '1px solid rgba(16, 185, 129, 0.25)',
+              borderRadius: '10px',
+              padding: '0.55rem 0.75rem',
+              margin: '0.6rem 0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '0.4rem'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ fontSize: '1.1rem' }}>🧬</span>
+                <div>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#10b981', letterSpacing: '0.5px' }}>
+                    LIFELONG NEURAL EVOLUTION
+                  </div>
+                  <div style={{ fontSize: '0.67rem', color: 'var(--text-muted)' }}>
+                    Continuous Multi-Week Synaptic Training
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                <span style={{
+                  background: 'rgba(16, 185, 129, 0.18)',
+                  color: '#34d399',
+                  padding: '0.18rem 0.45rem',
+                  borderRadius: '6px',
+                  fontSize: '0.68rem',
+                  fontWeight: 700
+                }}>
+                  Gen #{generation || 1}
+                </span>
+                <span style={{
+                  background: 'rgba(59, 130, 246, 0.18)',
+                  color: '#60a5fa',
+                  padding: '0.18rem 0.45rem',
+                  borderRadius: '6px',
+                  fontSize: '0.68rem',
+                  fontWeight: 700
+                }}>
+                  {totalSamplesTrained ? `${totalSamplesTrained.toLocaleString()} Ingested` : `${historyLength} Ingested`}
+                </span>
+              </div>
             </div>
 
             {/* Pattern Intelligence HUD */}

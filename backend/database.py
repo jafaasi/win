@@ -57,7 +57,19 @@ class PredictionLog(Base):
     pattern_detected = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# Base.metadata.create_all(bind=engine) # DO NOT run this on Vercel cold starts!
+class AIBrainState(Base):
+    """
+    Stores long-term synaptic neural weights, multi-week Markov tensors, and evolution generations.
+    """
+    __tablename__ = "ai_brain_state"
+
+    id = Column(Integer, primary_key=True)
+    model_name = Column(String, unique=True, index=True)
+    generation = Column(Integer, default=1)
+    total_samples_trained = Column(Integer, default=0)
+    synaptic_weights = Column(String) # JSON-encoded weights and tensors
+    best_win_rate = Column(Float, default=0.0)
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
 def get_db():
     db = SessionLocal()
@@ -137,3 +149,41 @@ def save_prediction(db, issue_number, prediction, confidence, pattern_name):
             db.commit()
         except Exception as e:
             db.rollback()
+
+def load_ai_brain_state(db, model_name="master_neural_ensemble"):
+    """
+    Loads persistent multi-week synaptic weights and generation counters from Supabase.
+    """
+    try:
+        brain = db.query(AIBrainState).filter(AIBrainState.model_name == model_name).first()
+        return brain
+    except Exception as e:
+        print("Load brain note:", e)
+        return None
+
+def save_ai_brain_state(db, model_name, generation, total_samples, weights_json, win_rate):
+    """
+    Saves evolved synaptic weights, generation milestone, and win rate into Supabase.
+    """
+    try:
+        brain = db.query(AIBrainState).filter(AIBrainState.model_name == model_name).first()
+        if not brain:
+            brain = AIBrainState(
+                model_name=model_name,
+                generation=generation,
+                total_samples_trained=total_samples,
+                synaptic_weights=weights_json,
+                best_win_rate=win_rate,
+                updated_at=datetime.utcnow()
+            )
+            db.add(brain)
+        else:
+            brain.generation = generation
+            brain.total_samples_trained = total_samples
+            brain.synaptic_weights = weights_json
+            brain.best_win_rate = max(brain.best_win_rate or 0.0, win_rate)
+            brain.updated_at = datetime.utcnow()
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print("Save brain note:", e)

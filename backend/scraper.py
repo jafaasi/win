@@ -47,15 +47,15 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
                         # 1. Sync draws & verify pending prediction logs
                         new_draws = save_live_draws(db, draws)
                         
-                        # 2. Extract full deep sequence history from Supabase (up to 10,000 draws)
-                        db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(10000).all()
+                        # 2. Extract full deep sequence history from Supabase (up to 50,000 draws)
+                        db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(50000).all()
                         if db_draws:
                             history = [int(d.number) for d in reversed(db_draws)]
                         else:
                             history = [int(d["number"]) for d in reversed(draws)]
                         
                         # 3. Train & run self-evolving AI ensemble on full accumulated dataset
-                        ai_result = exploit_all_loopholes(history)
+                        ai_result = exploit_all_loopholes(history, db=db)
                         next_issue = str(int(latest_issue) + 1)
                         
                         # 4. Save prediction for the upcoming draw
@@ -66,7 +66,7 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
                             confidence=ai_result["confidence"],
                             pattern_name=ai_result["patternName"]
                         )
-                        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Draw #{latest_issue} (Number: {draws[0]['number']}) -> Next #{next_issue} Predicted: {ai_result['prediction']} ({ai_result['confidence']}%) | Loophole: {ai_result['patternName']}")
+                        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Draw #{latest_issue} (Number: {draws[0]['number']}) -> Next #{next_issue} Predicted: {ai_result['prediction']} ({ai_result['confidence']}%) | Loophole: {ai_result['patternName']} | Gen: {ai_result.get('generation')}")
                     finally:
                         db.close()
         except Exception as e:
