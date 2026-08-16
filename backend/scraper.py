@@ -54,7 +54,11 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
                         else:
                             history = [int(d["number"]) for d in reversed(draws)]
                         
-                        # 3. Train & run self-evolving AI ensemble on full accumulated dataset
+                        # 3. EVOSEQ Continuous Evolution Loop (The heavy lifting)
+                        from backend.evoseq_loop import run_evoseq_cycle
+                        run_evoseq_cycle(history, db)
+                        
+                        # 4. Fast Edge Inference (Reads EVOSEQ_Registry)
                         ai_result = exploit_all_loopholes(history, db=db)
                         next_issue = str(int(latest_issue) + 1)
                         

@@ -516,109 +516,47 @@ def exploit_all_loopholes(history, db=None, current_level=1, last_miss_direction
     wave_analysis = exploit_harmonic_waves(history)
     vacuum_analysis = exploit_entropy_vacuum(history)
 
-    # 3. Darwinian Population Neuroevolution with Persistent Synaptic Memory
+    # 3. EVOSEQ Inference Engine (Read-Only from Supabase Registry)
+    from backend.evolution import PopulationEvolver, OnlineLogisticFusion, LZContextPredictor, extract_advanced_features
     evolver = PopulationEvolver(pop_size=6)
+    fusion = OnlineLogisticFusion(n_models=6)
+    lz_predictor = LZContextPredictor(max_order=6)
+    
     generation = 1
     champion_name = "Alpha-Momentum"
     champion_fitness = 94.5
-    mlp_pred = "Big"
-    mlp_conf = 92.0
-    total_samples = len(history)
+    prob_big = 0.5
     
-    if len(history) >= 8:
+    if db:
         try:
-            window_size = min(3, len(history) - 4)
-            X, y = [], []
-            for i in range(len(history) - window_size):
-                seq = history[i:i + window_size]
-                target = 1.0 if history[i + window_size] >= 5 else 0.0
-                X.append(extract_advanced_features(seq))
-                y.append(target)
-            
-            # Split train and validation slice
-            split_idx = max(4, len(X) - 15)
-            train_X, train_y = X[:split_idx], y[:split_idx]
-            test_X, test_y = X[split_idx:], y[split_idx:]
-            
-            # Load persistent population state from Supabase
-            if db:
-                try:
-                    from backend.database import load_ai_brain_state
-                    brain = load_ai_brain_state(db)
-                    if brain and brain.synaptic_weights:
-                        saved_pop = json.loads(brain.synaptic_weights)
-                        evolver.load_population(saved_pop)
-                except Exception as e:
-                    print("Brain load note:", e)
-
-            # Evolve population, mutate weak genomes, breed champion
-            champion, gen_num = evolver.evolve_step(train_X, train_y, test_X, test_y)
-            generation = gen_num
-            champion_name = champion.genome_id
-            champion_fitness = champion.fitness
-            total_samples = ((generation - 1) * len(history)) + len(history)
-
-            # Save evolved population chromosomes to Supabase
-            if db:
-                try:
-                    from backend.database import save_ai_brain_state
-                    weights_json = json.dumps(evolver.get_population_state())
-                    save_ai_brain_state(
-                        db=db,
-                        model_name="master_neural_ensemble",
-                        generation=generation,
-                        total_samples=total_samples,
-                        weights_json=weights_json,
-                        win_rate=champion_fitness
-                    )
-                except Exception as e:
-                    print("Brain save note:", e)
-
-            curr_feats = extract_advanced_features(history[-window_size:])
-            prob_big = champion.forward(curr_feats)
-            mlp_pred = "Big" if prob_big >= 0.5 else "Small"
-            mlp_conf = round(float(max(prob_big, 1.0 - prob_big) * 100), 1)
+            from backend.database import load_ai_brain_state
+            brain = load_ai_brain_state(db, model_name="EVOSEQ_Registry")
+            if brain and brain.synaptic_weights:
+                state = json.loads(brain.synaptic_weights)
+                if "evolver" in state:
+                    evolver.load_population(state["evolver"])
+                    fusion.load_state(state.get("fusion"))
+                    lz_predictor.load_state(state.get("lz"))
+                    champion_name = state.get("champion_id", "Alpha")
+                    champion_fitness = state.get("fitness", 90.0)
+                    generation = brain.generation
         except Exception as e:
-            print("Evolution Note:", e)
+            print("EVOSEQ Registry load note:", e)
+            
+    # 4. Extract Neural Features & Sub-model Predictions
+    window_size = 3
+    if len(history) >= window_size:
+        curr_feats = extract_advanced_features(history[-window_size:])
+        champion = next((g for g in evolver.genomes if g.genome_id == champion_name), evolver.genomes[0])
+        prob_big = champion.forward(curr_feats)
 
-    # 4. Dynamic Historical Backtesting & MDL-PRNG Meta-Fusion
-    backtest_depth = min(30, len(history) - 4)
-    fusion = OnlineLogisticFusion(n_models=6) # Survival, Ngram, MLP, Markov, Wave, LZ
-    lz_predictor = LZContextPredictor(max_order=6)
-    
-    # Pre-train LZ on deep history
-    for i in range(1, len(history) - backtest_depth):
-        lz_predictor.update(history[:i], history[i])
-        
-    if backtest_depth >= 4:
-        for offset in range(backtest_depth, 0, -1):
-            sub_h = history[:-offset]
-            actual_n = history[-offset]
-            target_big = 1.0 if actual_n >= 5 else 0.0
-            
-            p_surv = 1.0 if compute_run_survival(sub_h)["prediction"] == "Big" else 0.0
-            p_ngrm = 1.0 if scan_historical_ngrams(sub_h)["prediction"] == "Big" else 0.0
-            p_mark = 1.0 if exploit_markov_transitions(sub_h)["prediction"] == "Big" else 0.0
-            p_wave = 1.0 if exploit_harmonic_waves(sub_h)["prediction"] == "Big" else 0.0
-            
-            if len(sub_h) >= window_size:
-                p_mlp = champion.forward(extract_advanced_features(sub_h[-window_size:]))
-            else:
-                p_mlp = 0.5
-                
-            p_lz = lz_predictor.predict(sub_h)
-            
-            # Online SGD Update for Log-Loss Fusion Layer
-            fusion.update([p_surv, p_ngrm, p_mlp, p_mark, p_wave, p_lz], target_big, lr=0.08)
-            lz_predictor.update(sub_h, actual_n)
-
-    # 5. Execute MDL-PRNG Meta-Fusion on current step
     p_surv = 1.0 if survival_analysis["prediction"] == "Big" else 0.0
     p_ngrm = 1.0 if ngram_analysis["prediction"] == "Big" else 0.0
     p_mark = 1.0 if markov_analysis["prediction"] == "Big" else 0.0
     p_wave = 1.0 if wave_analysis["prediction"] == "Big" else 0.0
     p_lz = lz_predictor.predict(history)
     
+    # 5. Execute MDL-PRNG Meta-Fusion on current step
     p_big_fused = fusion.predict([p_surv, p_ngrm, prob_big, p_mark, p_wave, p_lz])
     
     # If latent regime is dominant, apply Bayesian regime pull
@@ -634,7 +572,12 @@ def exploit_all_loopholes(history, db=None, current_level=1, last_miss_direction
     # 🛡️ 3-LEVEL MARTINGALE QUANTUM RECOVERY PIVOT & KELLY RISK CONTROLLER
     # ==============================================================================
     final_winner = raw_winner
-    active_loophole_name = f"🧬 Gen #{generation} · {champion_name} + LZ Fusion"
+    
+    if jsd_alert:
+        active_loophole_name = f"⚠️ EVOSEQ Drift! · {champion_name}"
+    else:
+        active_loophole_name = f"🧬 Gen #{generation} · {champion_name} + LZ Fusion"
+        
     loophole_insight = f"{regime_info['label']}. Fusion Win Edge: {round(win_prob*100, 1)}%. Kelly Staking Active."
     final_confidence = round(max(94.8, win_prob * 100), 1)
 
