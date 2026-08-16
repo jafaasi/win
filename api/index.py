@@ -469,64 +469,59 @@ def compute_state(client_draws=None, init=False):
                 "time": "Verified Live"
             })
 
-    # If it's the initial load, sync live draws and fetch deep 24/7 background history from Supabase
-    if init:
-        try:
-            db = SessionLocal()
-            if live_draws:
-                save_live_draws(db, live_draws)
+    # Always sync live draws and fetch deep 24/7 cloud history from Supabase
+    try:
+        db = SessionLocal()
+        if live_draws:
+            save_live_draws(db, live_draws)
+            
+        # 1. Fetch full unbroken historical verified logs (up to 1000 rounds)
+        recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(1000).all()
+        
+        # 2. Fetch full deep historical numbers from Supabase (up to 1000 draws)
+        db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(1000).all()
+        if db_draws:
+            history = [int(d.number) for d in reversed(db_draws)]
+            
+        draw_nums = {d.issue_number: d.number for d in db_draws}
+        
+        db_logs = []
+        for log in recent_logs:
+            actual_num = draw_nums.get(log.issue_number, 8 if log.actual_size == "Big" else 2)
+            db_logs.append({
+                "id": f"db-{log.id}",
+                "issue": f"#{str(log.issue_number)[-5:]}",
+                "targetBS": log.predicted_size,
+                "targetNum": 7 if log.predicted_size == "Big" else 2,
+                "actualBS": log.actual_size,
+                "actualNum": actual_num,
+                "isWin": log.is_win,
+                "level": log.martingale_level or 1,
+                "pattern": log.pattern_detected or "Quantum Neural Engine",
+                "time": "24/7 Cloud Verified"
+            })
+        db.close()
+        
+        # DB logs are ordered NEWEST FIRST.
+        # Memory logs (round_logs) are ordered NEWEST FIRST.
+        # Deduplicate by issue tag
+        merged_logs = []
+        seen_issues = set()
+        
+        for ml in round_logs:
+            if ml["issue"] not in seen_issues:
+                merged_logs.append(ml)
+                seen_issues.add(ml["issue"])
                 
-            # 1. Fetch full unbroken historical verified logs (up to 1000 rounds)
-            recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(1000).all()
-            
-            # 2. Fetch full deep historical numbers from Supabase (up to 1000 draws)
-            db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(1000).all()
-            if db_draws:
-                history = [int(d.number) for d in reversed(db_draws)]
+        for dl in db_logs:
+            if dl["issue"] not in seen_issues:
+                merged_logs.append(dl)
+                seen_issues.add(dl["issue"])
                 
-            draw_nums = {d.issue_number: d.number for d in db_draws}
-            
-            db_logs = []
-            for log in recent_logs:
-                actual_num = draw_nums.get(log.issue_number, 8 if log.actual_size == "Big" else 2)
-                db_logs.append({
-                    "id": f"db-{log.id}",
-                    "issue": f"#{str(log.issue_number)[-5:]}",
-                    "targetBS": log.predicted_size,
-                    "targetNum": 7 if log.predicted_size == "Big" else 2,
-                    "actualBS": log.actual_size,
-                    "actualNum": actual_num,
-                    "isWin": log.is_win,
-                    "level": log.martingale_level or 1,
-                    "pattern": log.pattern_detected or "Quantum Neural Engine",
-                    "time": "24/7 Cloud Verified"
-                })
-            db.close()
-            
-            # DB logs are ordered NEWEST FIRST.
-            # Memory logs (round_logs) are ordered NEWEST FIRST.
-            # We want the final returned list to be NEWEST FIRST.
-            
-            # Deduplicate by issue tag
-            merged_logs = []
-            seen_issues = set()
-            
-            # Add memory logs first (they are the absolute freshest, live data)
-            for ml in round_logs:
-                if ml["issue"] not in seen_issues:
-                    merged_logs.append(ml)
-                    seen_issues.add(ml["issue"])
-                    
-            # Add DB logs next (they fill in the entire history gap)
-            for dl in db_logs:
-                if dl["issue"] not in seen_issues:
-                    merged_logs.append(dl)
-                    seen_issues.add(dl["issue"])
-                    
-            round_logs = merged_logs
-            
-        except Exception as e:
-            print("DB Fetch Error:", e)
+        round_logs = merged_logs
+        
+    except Exception as e:
+        print("DB Fetch Error:", e)
 
     wins = sum(1 for r in round_logs if r["isWin"])
     losses = len(round_logs) - wins

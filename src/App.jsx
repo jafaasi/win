@@ -109,94 +109,40 @@ function App() {
           return prevHist;
         });
 
-        // 4. Strict Win/Loss Verification: Match against exact on-screen predictions first!
-        setRoundLogs(prevLogs => {
-          const existingIssues = new Set(prevLogs.map(l => l.issue));
-          const updatedLogs = [...prevLogs];
-          let updatedLvl = currentLevel;
+        // 4. Strict Win/Loss Verification: Sync directly with cloud database
+        if (data && data.roundLogs && data.roundLogs.length > 0) {
+          setRoundLogs(() => {
+            const pendingMap = pendingPredictions.current;
 
-          // A. Process live completed draws against what was actually shown on screen
-          const chronologicalDraws = clientDraws.slice().reverse();
-          chronologicalDraws.forEach(draw => {
-            const rawIssue = String(draw.issueNumber);
-            const tagIssue = `#${rawIssue.slice(-5)}`;
-            
-            if (!existingIssues.has(tagIssue)) {
-              const pending = pendingPredictions.current[rawIssue] || pendingPredictions.current[tagIssue];
+            // Map over canonical cloud logs and overlay any local on-screen predictions
+            const syncedLogs = data.roundLogs.map(log => {
+              const pending = pendingMap[log.issue] || 
+                Object.entries(pendingMap).find(([k]) => `#${String(k).slice(-5)}` === log.issue)?.[1];
+              
               if (pending) {
-                const drawNum = Number(draw.number);
-                const actualBS = toBigSmall(drawNum);
-                const isWin = (pending.targetBS === actualBS);
-                const betLevel = pending.level || updatedLvl;
-
-                const liveLog = {
-                  id: `live-${rawIssue}`,
-                  issue: tagIssue,
+                const isWin = (pending.targetBS === log.actualBS);
+                return {
+                  ...log,
                   targetBS: pending.targetBS,
-                  targetNum: pending.targetNum !== undefined ? pending.targetNum : (pending.targetBS === 'Big' ? 7 : 2),
-                  actualBS: actualBS,
-                  actualNum: drawNum,
+                  targetNum: pending.targetNum !== undefined ? pending.targetNum : log.targetNum,
                   isWin: isWin,
-                  level: betLevel,
-                  pattern: pending.pattern || "Quantum AI",
-                  time: "Verified Live"
+                  pattern: pending.pattern || log.pattern,
+                  level: pending.level || log.level
                 };
-
-                if (isWin) {
-                  updatedLvl = 1;
-                } else {
-                  updatedLvl = betLevel < 3 ? betLevel + 1 : 1;
-                }
-
-                updatedLogs.unshift(liveLog);
-                existingIssues.add(tagIssue);
               }
-            }
-          });
-
-          // B. Fill in any missing historical rounds from backend logs (e.g. initial load / offline)
-          if (data && data.roundLogs) {
-            const incomingLogs = data.roundLogs.slice().reverse();
-            incomingLogs.forEach(log => {
-              if (!existingIssues.has(log.issue)) {
-                const pending = pendingPredictions.current[log.issue] || 
-                  Object.entries(pendingPredictions.current).find(([k]) => `#${String(k).slice(-5)}` === log.issue)?.[1];
-                
-                let finalTargetBS = log.targetBS;
-                let finalTargetNum = log.targetNum;
-                let finalPattern = log.pattern;
-                let finalIsWin = log.isWin;
-
-                if (pending) {
-                  finalTargetBS = pending.targetBS;
-                  finalTargetNum = pending.targetNum;
-                  finalPattern = pending.pattern;
-                  finalIsWin = (finalTargetBS === log.actualBS);
-                }
-
-                const betLevel = updatedLvl;
-                log.targetBS = finalTargetBS;
-                log.targetNum = finalTargetNum;
-                log.pattern = finalPattern;
-                log.isWin = finalIsWin;
-                log.level = betLevel;
-                log.id = log.id || `${log.issue}-${Date.now()}`;
-
-                if (finalIsWin) {
-                  updatedLvl = 1;
-                } else {
-                  updatedLvl = betLevel < 3 ? betLevel + 1 : 1;
-                }
-
-                updatedLogs.unshift(log);
-                existingIssues.add(log.issue);
-              }
+              return log;
             });
-          }
 
-          setCurrentLevel(updatedLvl);
-          return updatedLogs.slice(0, 5000);
-        });
+            // Derive active Martingale level directly from the latest verified outcome
+            if (syncedLogs.length > 0) {
+              const latestLog = syncedLogs[0];
+              const nextLvl = latestLog.isWin ? 1 : ((latestLog.level < 3) ? latestLog.level + 1 : 1);
+              setCurrentLevel(nextLvl);
+            }
+
+            return syncedLogs.slice(0, 5000);
+          });
+        }
       }
 
       // 5. Update Active Prediction & Register in Pending Map for exact next verification
