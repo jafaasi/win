@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from typing import Dict, Any, List, Optional
+import numpy as np
 from .database import SessionLocal
 from .schemas import (
     ModelVersionRecord,
@@ -9,7 +10,8 @@ from .schemas import (
     SystemEventRecord,
     WorkerStateRecord,
     ChampionHealthRecord,
-    ModelEvent
+    ModelEvent,
+    HiddenStateExperimentRecord
 )
 
 app = FastAPI(title="EVOSEQ Autonomous Research Platform API", version="1.0.0")
@@ -156,4 +158,63 @@ def get_meta_insights() -> Dict[str, Any]:
         "robust_families_under_drift": kg.query_robust_families_under_drift(),
         "supported_hypotheses": kg.get_supported_scientific_hypotheses()
     }
+
+@app.get("/dynamical/change-points")
+def get_dynamical_change_points() -> Dict[str, Any]:
+    from .dynamical.change_point import OnlineChangeDetector
+    with SessionLocal() as session:
+        rows = session.query(Outcome).order_by(Outcome.sequence_no.desc()).limit(250).all()
+        rows.reverse()
+        digits = [r.digit for r in rows]
+    detector = OnlineChangeDetector(reference_size=150, recent_size=30)
+    score = detector.score(digits)
+    state = detector.classify_state(score, info_gain=0.02)
+    return {"change_score": score, "state": state}
+
+@app.get("/dynamical/recurrence")
+def get_dynamical_recurrence() -> Dict[str, Any]:
+    from .dynamical.recurrence import recurrence_matrix, recurrence_quantification_analysis
+    with SessionLocal() as session:
+        rows = session.query(Outcome).order_by(Outcome.sequence_no.desc()).limit(60).all()
+        rows.reverse()
+        digits = [r.digit for r in rows]
+    R = recurrence_matrix(np.array(digits), epsilon=0.5)
+    rqa = recurrence_quantification_analysis(R)
+    return rqa
+
+@app.get("/dynamical/symbolic")
+def get_dynamical_symbolic() -> Dict[str, Any]:
+    from .dynamical.symbolic import symbolic_complexity_curve
+    with SessionLocal() as session:
+        rows = session.query(Outcome).order_by(Outcome.sequence_no.desc()).limit(100).all()
+        rows.reverse()
+        digits = [r.digit for r in rows]
+    return symbolic_complexity_curve(digits, max_k=4)
+
+@app.get("/dynamical/memory-depth")
+def get_dynamical_memory_depth() -> Dict[str, Any]:
+    from .dynamical.bottleneck import MemoryDepthEstimator
+    with SessionLocal() as session:
+        rows = session.query(Outcome).order_by(Outcome.sequence_no.desc()).limit(100).all()
+        rows.reverse()
+        digits = [r.digit for r in rows]
+    return MemoryDepthEstimator.estimate_depth_curve(digits)
+
+@app.get("/dynamical/benchmarks")
+def get_dynamical_benchmarks() -> List[Dict[str, Any]]:
+    with SessionLocal() as session:
+        exps = session.query(HiddenStateExperimentRecord).order_by(HiddenStateExperimentRecord.id.desc()).limit(20).all()
+        return [
+            {
+                "id": e.id,
+                "generator_type": e.generator_type,
+                "observation_count": e.observation_count,
+                "state_dimension": e.state_dimension,
+                "state_recovery_score": e.state_recovery_score,
+                "parameter_recovery_score": e.parameter_recovery_score,
+                "runtime_seconds": e.runtime_seconds
+            }
+            for e in exps
+        ]
+
 

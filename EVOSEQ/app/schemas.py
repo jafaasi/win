@@ -192,6 +192,40 @@ class ResearchHypothesisRecord(Base):
     evidence_summary = Column(JSON, default=dict)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
+class HiddenStateExperimentRecord(Base):
+    __tablename__ = "hidden_state_experiments"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    model_version_id = Column(BigInteger, index=True, nullable=True)
+    generator_type = Column(String, index=True, nullable=False)
+    observation_count = Column(BigInteger, nullable=True)
+    state_dimension = Column(Integer, nullable=True)
+    state_recovery_score = Column(Float, nullable=True)
+    parameter_recovery_score = Column(Float, nullable=True)
+    predictive_score = Column(Float, nullable=True)
+    runtime_seconds = Column(Float, nullable=True)
+    metadata_json = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class EnvironmentFingerprintRecord(Base):
+    __tablename__ = "environment_fingerprints"
+
+    sequence_no = Column(BigInteger, primary_key=True, index=True)
+    entropy = Column(Float, nullable=True)
+    conditional_entropy_1 = Column(Float, nullable=True)
+    conditional_entropy_2 = Column(Float, nullable=True)
+    information_gain_1 = Column(Float, nullable=True)
+    information_gain_2 = Column(Float, nullable=True)
+    lz_complexity = Column(Float, nullable=True)
+    lz_zscore = Column(Float, nullable=True)
+    autocorrelation_1 = Column(Float, nullable=True)
+    autocorrelation_2 = Column(Float, nullable=True)
+    drift_score = Column(Float, nullable=True)
+    recurrence_rate = Column(Float, nullable=True)
+    metadata_json = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 
 
 
