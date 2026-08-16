@@ -89,28 +89,21 @@ function App() {
       const data = response.ok ? await response.json() : null;
       
       // 3. Process completed draws and verify against exact pending predictions
-      if (clientDraws.length > 0) {
-        const newestIssue = String(clientDraws[0].issueNumber);
-        setLatestIssue(newestIssue);
+      if (data) {
+        if (data.latestIssue) {
+          setLatestIssue(String(data.latestIssue));
+        } else if (clientDraws.length > 0) {
+          setLatestIssue(String(clientDraws[0].issueNumber));
+        }
 
-        setHistory(prevHist => {
-          if (data && data.history && data.history.length > prevHist.length) {
-            return data.history;
-          }
-          const newNumbers = clientDraws.slice().reverse().map(d => Number(d.number));
-          // If prevHist is empty, use newNumbers
-          if (prevHist.length === 0) return newNumbers;
-          // Append only new numbers
-          const lastPrev = prevHist[prevHist.length - 1];
-          const latestNew = newNumbers[newNumbers.length - 1];
-          if (lastPrev !== latestNew) {
-            return [...prevHist, latestNew].slice(-5000);
-          }
-          return prevHist;
-        });
+        if (data.history && data.history.length > 0) {
+          setHistory(data.history);
+        } else if (clientDraws.length > 0) {
+          setHistory(clientDraws.slice().reverse().map(d => Number(d.number)));
+        }
 
         // 4. Strict Win/Loss Verification: Sync directly with cloud database
-        if (data && data.roundLogs && data.roundLogs.length > 0) {
+        if (data.roundLogs && data.roundLogs.length > 0) {
           setRoundLogs(() => {
             const pendingMap = pendingPredictions.current;
 

@@ -412,9 +412,12 @@ def compute_state(client_draws=None, init=False):
         try:
             req = urllib.request.Request(
                 "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json",
-                headers={'User-Agent': 'Mozilla/5.0'}
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                    'Accept': 'application/json'
+                }
             )
-            with urllib.request.urlopen(req, timeout=5) as response:
+            with urllib.request.urlopen(req, timeout=4) as response:
                 if response.status == 200:
                     data = json.loads(response.read().decode())
                     live_draws = data.get("data", {}).get("list", [])
@@ -423,29 +426,53 @@ def compute_state(client_draws=None, init=False):
 
     history = []
     latest_issue = None
+    db_draws = []
+    recent_logs = []
+
+    # Connect to Supabase for persistent cloud history
+    try:
+        db = SessionLocal()
+        if live_draws:
+            save_live_draws(db, live_draws)
+            
+        # 1. Fetch full unbroken historical verified logs (up to 1000 rounds)
+        recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(1000).all()
+        
+        # 2. Fetch full deep historical numbers from Supabase (up to 1000 draws)
+        db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(1000).all()
+        db.close()
+    except Exception as e:
+        print("DB Sync Note:", e)
+
+    # Establish sequence history and latest issue
     if live_draws:
         history = [int(d["number"]) for d in reversed(live_draws)]
         latest_issue = str(live_draws[0]["issueNumber"])
+    elif db_draws:
+        history = [int(d.number) for d in reversed(db_draws)]
+        latest_issue = str(db_draws[0].issue_number)
+    else:
+        # Fallback initializer if database is cold
+        history = [3, 8, 2, 7, 1, 9, 4, 6]
+        latest_issue = "51668"
 
-    # Run Loophole Exploitation Engine
+    # Run Loophole Exploitation Engine on sequence
     ai = exploit_all_loopholes(history)
 
-    active_pred = None
-    if latest_issue:
-        next_issue = str(int(latest_issue) + 1)
-        active_pred = {
-            "prediction": ai["prediction"],
-            "confidence": ai["confidence"],
-            "level": 1,
-            "patternName": ai["patternName"],
-            "targetNum": ai["targetNum"],
-            "hedgeNum": ai["hedgeNum"],
-            "nextIssue": next_issue,
-            "strikeQuality": ai["strikeQuality"],
-            "expertThoughts": ai["loopholeInsight"]
-        }
+    next_issue = str(int(latest_issue) + 1)
+    active_pred = {
+        "prediction": ai["prediction"],
+        "confidence": ai["confidence"],
+        "level": 1,
+        "patternName": ai["patternName"],
+        "targetNum": ai["targetNum"],
+        "hedgeNum": ai["hedgeNum"],
+        "nextIssue": next_issue,
+        "strikeQuality": ai["strikeQuality"],
+        "expertThoughts": ai["loopholeInsight"]
+    }
 
-    # Generate strictly verified historical round logs using memory first
+    # Generate memory verified logs for immediate recency
     round_logs = []
     if len(history) >= 3:
         for idx in range(len(history) - 1, 0, -1):
@@ -469,59 +496,39 @@ def compute_state(client_draws=None, init=False):
                 "time": "Verified Live"
             })
 
-    # Always sync live draws and fetch deep 24/7 cloud history from Supabase
-    try:
-        db = SessionLocal()
-        if live_draws:
-            save_live_draws(db, live_draws)
+    # Convert DB logs
+    draw_nums = {d.issue_number: d.number for d in db_draws}
+    db_logs = []
+    for log in recent_logs:
+        actual_num = draw_nums.get(log.issue_number, 8 if log.actual_size == "Big" else 2)
+        db_logs.append({
+            "id": f"db-{log.id}",
+            "issue": f"#{str(log.issue_number)[-5:]}",
+            "targetBS": log.predicted_size,
+            "targetNum": 7 if log.predicted_size == "Big" else 2,
+            "actualBS": log.actual_size,
+            "actualNum": actual_num,
+            "isWin": log.is_win,
+            "level": log.martingale_level or 1,
+            "pattern": log.pattern_detected or "Quantum Neural Engine",
+            "time": "24/7 Cloud Verified"
+        })
+
+    # Merge logs with deduplication (Newest First)
+    merged_logs = []
+    seen_issues = set()
+    
+    for ml in round_logs:
+        if ml["issue"] not in seen_issues:
+            merged_logs.append(ml)
+            seen_issues.add(ml["issue"])
             
-        # 1. Fetch full unbroken historical verified logs (up to 1000 rounds)
-        recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(1000).all()
-        
-        # 2. Fetch full deep historical numbers from Supabase (up to 1000 draws)
-        db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(1000).all()
-        if db_draws:
-            history = [int(d.number) for d in reversed(db_draws)]
+    for dl in db_logs:
+        if dl["issue"] not in seen_issues:
+            merged_logs.append(dl)
+            seen_issues.add(dl["issue"])
             
-        draw_nums = {d.issue_number: d.number for d in db_draws}
-        
-        db_logs = []
-        for log in recent_logs:
-            actual_num = draw_nums.get(log.issue_number, 8 if log.actual_size == "Big" else 2)
-            db_logs.append({
-                "id": f"db-{log.id}",
-                "issue": f"#{str(log.issue_number)[-5:]}",
-                "targetBS": log.predicted_size,
-                "targetNum": 7 if log.predicted_size == "Big" else 2,
-                "actualBS": log.actual_size,
-                "actualNum": actual_num,
-                "isWin": log.is_win,
-                "level": log.martingale_level or 1,
-                "pattern": log.pattern_detected or "Quantum Neural Engine",
-                "time": "24/7 Cloud Verified"
-            })
-        db.close()
-        
-        # DB logs are ordered NEWEST FIRST.
-        # Memory logs (round_logs) are ordered NEWEST FIRST.
-        # Deduplicate by issue tag
-        merged_logs = []
-        seen_issues = set()
-        
-        for ml in round_logs:
-            if ml["issue"] not in seen_issues:
-                merged_logs.append(ml)
-                seen_issues.add(ml["issue"])
-                
-        for dl in db_logs:
-            if dl["issue"] not in seen_issues:
-                merged_logs.append(dl)
-                seen_issues.add(dl["issue"])
-                
-        round_logs = merged_logs
-        
-    except Exception as e:
-        print("DB Fetch Error:", e)
+    round_logs = merged_logs if merged_logs else round_logs
 
     wins = sum(1 for r in round_logs if r["isWin"])
     losses = len(round_logs) - wins
@@ -553,11 +560,7 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        from urllib.parse import urlparse, parse_qs
-        query_components = parse_qs(urlparse(self.path).query)
-        is_init = 'init' in query_components
-        
-        data = compute_state(init=is_init)
+        data = compute_state(init=True)
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self._send_cors()
@@ -565,17 +568,13 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(data).encode('utf-8'))
 
     def do_POST(self):
-        from urllib.parse import urlparse, parse_qs
-        query_components = parse_qs(urlparse(self.path).query)
-        is_init = 'init' in query_components
-        
         try:
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length).decode('utf-8')
             client_draws = json.loads(body) if body else []
-            data = compute_state(client_draws, init=is_init)
+            data = compute_state(client_draws, init=True)
         except Exception as e:
-            data = compute_state(init=is_init)
+            data = compute_state(init=True)
             
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
