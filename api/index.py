@@ -175,7 +175,11 @@ def get_state():
     live_draws = []
     try:
         url = f"https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json?ts={datetime.utcnow().timestamp()}"
-        res = httpx.get(url, timeout=5.0)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "application/json"
+        }
+        res = httpx.get(url, headers=headers, timeout=8.0)
         if res.status_code == 200:
             data = res.json()
             live_draws = data.get("data", {}).get("list", [])
