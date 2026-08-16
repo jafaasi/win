@@ -238,6 +238,21 @@ class ModelScoreRecord(Base):
     calibration_error = Column(Float, nullable=True)
     evaluated_at = Column(DateTime, default=datetime.utcnow)
 
+class EnsembleObservationRecord(Base):
+    __tablename__ = "ensemble_observations"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    sequence_no = Column(BigInteger, index=True, nullable=False)
+    environment = Column(JSON, default=dict)
+    model_predictions = Column(JSON, default=dict)
+    model_weights = Column(JSON, default=dict)
+    ensemble_prediction = Column(JSON, default=list)
+    actual_digit = Column(SmallInteger, nullable=True)
+    ensemble_log_loss = Column(Float, nullable=True)
+    disagreement = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 
 
 
