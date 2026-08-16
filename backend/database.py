@@ -111,12 +111,11 @@ def save_live_draws(db, live_draws):
             )
             db.add(log)
             
-    if new_draws > 0:
-        try:
-            db.commit()
-        except Exception as e:
-            db.rollback()
-            print(f"DB Commit Note: {e}")
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"DB Commit Note: {e}")
     return new_draws
 
 def save_prediction(db, issue_number, prediction, confidence, pattern_name):

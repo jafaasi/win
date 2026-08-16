@@ -401,7 +401,7 @@ def exploit_all_loopholes(history):
         "loopholeInsight": loophole_insight
     }
 
-from backend.database import SessionLocal, Draw, PredictionLog, save_live_draws
+from backend.database import SessionLocal, Draw, PredictionLog, save_live_draws, save_prediction
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
 
@@ -429,48 +429,72 @@ def compute_state(client_draws=None, init=False):
     db_draws = []
     recent_logs = []
 
-    # Connect to Supabase for persistent cloud history
+    # Connect to Supabase for persistent cloud history and live sync
     try:
         db = SessionLocal()
         if live_draws:
             save_live_draws(db, live_draws)
             
-        # 1. Fetch full unbroken historical verified logs (up to 10,000 rounds)
-        recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(10000).all()
-        
-        # 2. Fetch full deep historical numbers from Supabase (up to 10,000 draws)
+        # 1. Fetch full deep historical numbers from Supabase (up to 10,000 draws)
         db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(10000).all()
+        
+        # Establish sequence history and latest issue
+        if live_draws:
+            history = [int(d["number"]) for d in reversed(live_draws)]
+            latest_issue = str(live_draws[0]["issueNumber"])
+        elif db_draws:
+            history = [int(d.number) for d in reversed(db_draws)]
+            latest_issue = str(db_draws[0].issue_number)
+        else:
+            history = [3, 8, 2, 7, 1, 9, 4, 6]
+            latest_issue = "51730"
+
+        # Run Loophole Exploitation Engine on sequence
+        ai = exploit_all_loopholes(history)
+
+        next_issue = str(int(latest_issue) + 1)
+        active_pred = {
+            "prediction": ai["prediction"],
+            "confidence": ai["confidence"],
+            "level": 1,
+            "patternName": ai["patternName"],
+            "targetNum": ai["targetNum"],
+            "hedgeNum": ai["hedgeNum"],
+            "nextIssue": next_issue,
+            "strikeQuality": ai["strikeQuality"],
+            "expertThoughts": ai["loopholeInsight"]
+        }
+
+        # 2. Persistently record future prediction in Supabase before draw occurs
+        save_prediction(
+            db=db,
+            issue_number=next_issue,
+            prediction=active_pred["prediction"],
+            confidence=active_pred["confidence"],
+            pattern_name=active_pred["patternName"]
+        )
+
+        # 3. Fetch full unbroken historical verified logs (up to 10,000 rounds)
+        recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(10000).all()
         db.close()
     except Exception as e:
         print("DB Sync Note:", e)
-
-    # Establish sequence history and latest issue
-    if live_draws:
-        history = [int(d["number"]) for d in reversed(live_draws)]
-        latest_issue = str(live_draws[0]["issueNumber"])
-    elif db_draws:
-        history = [int(d.number) for d in reversed(db_draws)]
-        latest_issue = str(db_draws[0].issue_number)
-    else:
-        # Fallback initializer if database is cold
-        history = [3, 8, 2, 7, 1, 9, 4, 6]
-        latest_issue = "51668"
-
-    # Run Loophole Exploitation Engine on sequence
-    ai = exploit_all_loopholes(history)
-
-    next_issue = str(int(latest_issue) + 1)
-    active_pred = {
-        "prediction": ai["prediction"],
-        "confidence": ai["confidence"],
-        "level": 1,
-        "patternName": ai["patternName"],
-        "targetNum": ai["targetNum"],
-        "hedgeNum": ai["hedgeNum"],
-        "nextIssue": next_issue,
-        "strikeQuality": ai["strikeQuality"],
-        "expertThoughts": ai["loopholeInsight"]
-    }
+        if not history:
+            history = [3, 8, 2, 7, 1, 9, 4, 6]
+            latest_issue = "51730"
+        ai = exploit_all_loopholes(history)
+        next_issue = str(int(latest_issue) + 1)
+        active_pred = {
+            "prediction": ai["prediction"],
+            "confidence": ai["confidence"],
+            "level": 1,
+            "patternName": ai["patternName"],
+            "targetNum": ai["targetNum"],
+            "hedgeNum": ai["hedgeNum"],
+            "nextIssue": next_issue,
+            "strikeQuality": ai["strikeQuality"],
+            "expertThoughts": ai["loopholeInsight"]
+        }
 
     # Generate memory verified logs for immediate recency
     round_logs = []
