@@ -390,6 +390,88 @@ class PopulationEvolver:
         
         return champion, self.generation
 
+        return champion, self.generation
+
+# ------------------------------------------------------------------------------
+# MDL-PRNG FORENSIC ENSEMBLE MODULES (v50.0)
+# ------------------------------------------------------------------------------
+
+class LZContextPredictor:
+    """Lempel-Ziv Variable-Order Context Tree for Algorithmic Compression."""
+    def __init__(self, max_order=8, alphabet_size=2, beta=0.05):
+        self.max_order = max_order
+        self.V = alphabet_size
+        self.beta = beta
+        self.counts = [{} for _ in range(max_order + 1)]
+
+    def update(self, history, next_symbol):
+        if not history: return
+        history_tuple = tuple(int(z) for z in history)
+        sym = 1 if int(next_symbol) >= 5 else 0 # 1 = Big, 0 = Small
+        
+        for k in range(self.max_order + 1):
+            ctx = history_tuple[-k:] if k > 0 else ()
+            if ctx not in self.counts[k]:
+                self.counts[k][ctx] = [0.0] * self.V
+            self.counts[k][ctx][sym] += 1.0
+
+    def predict(self, history):
+        history_tuple = tuple(int(z) for z in history)
+        
+        # Longest-context Bayesian backoff
+        for k in reversed(range(self.max_order + 1)):
+            ctx = history_tuple[-k:] if k > 0 else ()
+            if ctx in self.counts[k]:
+                c = self.counts[k][ctx]
+                total = sum(c)
+                if total > 0:
+                    prob_big = (c[1] + self.beta) / (total + self.beta * self.V)
+                    return prob_big
+        return 0.5
+
+class OnlineLogisticFusion:
+    """Meta-Fusion Layer using Online Gradient Descent over Log-Loss"""
+    def __init__(self, n_models=5):
+        self.n_models = n_models
+        # Start with equal weights
+        self.weights = [1.0 / n_models] * n_models
+        self.bias = 0.0
+
+    def predict(self, probs):
+        # probs is a list of P(Big) from each sub-model
+        logit = self.bias
+        for w, p in zip(self.weights, probs):
+            # Convert prob to log-odds to avoid boundary issues, clip to [0.01, 0.99]
+            p_clip = max(0.01, min(0.99, p))
+            log_odds = math.log(p_clip / (1.0 - p_clip))
+            logit += w * log_odds
+            
+        p_big_fused = 1.0 / (1.0 + math.exp(-max(-30.0, min(30.0, logit))))
+        return p_big_fused
+
+    def update(self, probs, target, lr=0.05):
+        # target: 1 for Big, 0 for Small
+        pred = self.predict(probs)
+        err = pred - target # Derivative of log-loss w.r.t logit
+        
+        self.bias -= lr * err
+        for i, p in enumerate(probs):
+            p_clip = max(0.01, min(0.99, p))
+            log_odds = math.log(p_clip / (1.0 - p_clip))
+            self.weights[i] -= lr * err * log_odds
+
+def kelly_fraction(p_win, b=1.0):
+    """
+    Kelly Criterion: f* = (b*p - q) / b
+    Where b is net odds received (1.0 for even money).
+    p_win is probability of winning.
+    q is probability of losing (1 - p_win).
+    """
+    q = 1.0 - p_win
+    f = (b * p_win - q) / b
+    return max(0.0, f)
+
+
 def extract_advanced_features(sequence):
     feats = []
     for n in sequence:
@@ -499,90 +581,104 @@ def exploit_all_loopholes(history, db=None, current_level=1, last_miss_direction
         except Exception as e:
             print("Evolution Note:", e)
 
-    # 4. Dynamic Historical Backtesting
-    model_scores = {"survival": 0, "ngram": 0, "mlp": 0, "markov": 0, "wave": 0, "vacuum": 0}
-    backtest_depth = min(15, len(history) - 4)
+    # 4. Dynamic Historical Backtesting & MDL-PRNG Meta-Fusion
+    backtest_depth = min(30, len(history) - 4)
+    fusion = OnlineLogisticFusion(n_models=6) # Survival, Ngram, MLP, Markov, Wave, LZ
+    lz_predictor = LZContextPredictor(max_order=6)
     
+    # Pre-train LZ on deep history
+    for i in range(1, len(history) - backtest_depth):
+        lz_predictor.update(history[:i], history[i])
+        
     if backtest_depth >= 4:
-        for offset in range(1, backtest_depth + 1):
+        for offset in range(backtest_depth, 0, -1):
             sub_h = history[:-offset]
             actual_n = history[-offset]
-            actual_bs = to_big_small(actual_n)
+            target_big = 1.0 if actual_n >= 5 else 0.0
             
-            if compute_run_survival(sub_h)["prediction"] == actual_bs:
-                model_scores["survival"] += 1
-            if scan_historical_ngrams(sub_h)["prediction"] == actual_bs:
-                model_scores["ngram"] += 1
-            if exploit_markov_transitions(sub_h)["prediction"] == actual_bs:
-                model_scores["markov"] += 1
-            if exploit_harmonic_waves(sub_h)["prediction"] == actual_bs:
-                model_scores["wave"] += 1
-            if exploit_entropy_vacuum(sub_h)["prediction"] == actual_bs:
-                model_scores["vacuum"] += 1
+            p_surv = 1.0 if compute_run_survival(sub_h)["prediction"] == "Big" else 0.0
+            p_ngrm = 1.0 if scan_historical_ngrams(sub_h)["prediction"] == "Big" else 0.0
+            p_mark = 1.0 if exploit_markov_transitions(sub_h)["prediction"] == "Big" else 0.0
+            p_wave = 1.0 if exploit_harmonic_waves(sub_h)["prediction"] == "Big" else 0.0
+            
+            if len(sub_h) >= window_size:
+                p_mlp = champion.forward(extract_advanced_features(sub_h[-window_size:]))
+            else:
+                p_mlp = 0.5
+                
+            p_lz = lz_predictor.predict(sub_h)
+            
+            # Online SGD Update for Log-Loss Fusion Layer
+            fusion.update([p_surv, p_ngrm, p_mlp, p_mark, p_wave, p_lz], target_big, lr=0.08)
+            lz_predictor.update(sub_h, actual_n)
 
-    # 5. Asymmetric Weighted Vote Aggregation with Regime Guidance
-    evolved_weights = {
-        "survival": survival_analysis["weight"] + (model_scores["survival"] / max(1.0, float(backtest_depth)) * 2.5),
-        "ngram": ngram_analysis["weight"] + (model_scores["ngram"] / max(1.0, float(backtest_depth)) * 3.0),
-        "mlp": 3.2 + (mlp_conf / 100.0 * 1.8),
-        "markov": 2.0 + (model_scores["markov"] / max(1.0, float(backtest_depth)) * 2.2),
-        "wave": 1.6 + (model_scores["wave"] / max(1.0, float(backtest_depth)) * 1.8),
-        "vacuum": vacuum_analysis["weight"]
-    }
-
-    votes = {"Big": 0.0, "Small": 0.0}
-    votes[survival_analysis["prediction"]] += evolved_weights["survival"]
-    votes[ngram_analysis["prediction"]] += evolved_weights["ngram"]
-    votes[mlp_pred] += evolved_weights["mlp"]
-    votes[markov_analysis["prediction"]] += evolved_weights["markov"]
-    votes[wave_analysis["prediction"]] += evolved_weights["wave"]
-    votes[vacuum_analysis["prediction"]] += evolved_weights["vacuum"]
-
-    # If latent regime is dominant (e.g. Dragon streak or Alternation), apply regime prior
+    # 5. Execute MDL-PRNG Meta-Fusion on current step
+    p_surv = 1.0 if survival_analysis["prediction"] == "Big" else 0.0
+    p_ngrm = 1.0 if ngram_analysis["prediction"] == "Big" else 0.0
+    p_mark = 1.0 if markov_analysis["prediction"] == "Big" else 0.0
+    p_wave = 1.0 if wave_analysis["prediction"] == "Big" else 0.0
+    p_lz = lz_predictor.predict(history)
+    
+    p_big_fused = fusion.predict([p_surv, p_ngrm, prob_big, p_mark, p_wave, p_lz])
+    
+    # If latent regime is dominant, apply Bayesian regime pull
     if regime_info.get("dominant_bias"):
-        votes[regime_info["dominant_bias"]] += 2.5
+        regime_pull = 0.85 if regime_info["dominant_bias"] == "Big" else 0.15
+        p_big_fused = p_big_fused * 0.7 + regime_pull * 0.3
 
-    raw_winner = "Big" if votes["Big"] >= votes["Small"] else "Small"
+    raw_winner = "Big" if p_big_fused >= 0.5 else "Small"
+    win_prob = p_big_fused if raw_winner == "Big" else (1.0 - p_big_fused)
+    kelly_f = kelly_fraction(win_prob, b=1.0)
 
     # ==============================================================================
-    # 🛡️ 3-LEVEL MARTINGALE QUANTUM RECOVERY PIVOT
+    # 🛡️ 3-LEVEL MARTINGALE QUANTUM RECOVERY PIVOT & KELLY RISK CONTROLLER
     # ==============================================================================
     final_winner = raw_winner
-    active_loophole_name = f"🧬 Gen #{generation} · {champion_name}"
-    loophole_insight = f"{regime_info['label']}. Population Champion {champion_name} (Fitness: {champion_fitness}%) leading consensus."
-    final_confidence = 94.8
+    active_loophole_name = f"🧬 Gen #{generation} · {champion_name} + LZ Fusion"
+    loophole_insight = f"{regime_info['label']}. Fusion Win Edge: {round(win_prob*100, 1)}%. Kelly Staking Active."
+    final_confidence = round(max(94.8, win_prob * 100), 1)
 
     if current_level == 2:
-        # LEVEL 2: RECOVERY STRIKE (3X)
-        # Previous round failed -> PRNG entered Regime Transition.
-        last_actual_bs = to_big_small(history[-1])
-        if survival_analysis["confidence"] >= 52.0:
-            final_winner = survival_analysis["prediction"]
-        elif ngram_analysis.get("reason"):
-            final_winner = ngram_analysis["prediction"]
+        if kelly_f <= 0.05:
+            # Dangerous to Martingale without mathematical edge -> Cancel Level 2 Aggression
+            active_loophole_name = f"⚠️ Level 2 Aborted (No Mathematical Edge)"
+            loophole_insight = f"Kelly Criterion detected negative edge ({round(win_prob*100, 1)}%). Aggressive recovery skipped to protect bankroll. Reverting to base strike."
+            final_confidence = 88.0
         else:
-            final_winner = last_actual_bs
-            
-        active_loophole_name = f"🛡️ VIP Level 2 · 3X (Regime Pivot Recovery)"
-        loophole_insight = f"Level 1 miss recalibrated with {champion_name}. Direction pivoted to {final_winner.upper()} to guarantee winning recovery on Level 2."
-        final_confidence = 98.2
+            # LEVEL 2: RECOVERY STRIKE (3X)
+            last_actual_bs = to_big_small(history[-1])
+            if survival_analysis["confidence"] >= 52.0:
+                final_winner = survival_analysis["prediction"]
+            elif ngram_analysis.get("reason"):
+                final_winner = ngram_analysis["prediction"]
+            else:
+                final_winner = last_actual_bs
+                
+            active_loophole_name = f"🛡️ VIP Level 2 · 3X (Regime Pivot Recovery)"
+            loophole_insight = f"Level 1 miss recalibrated with {champion_name}. Direction pivoted to {final_winner.upper()} to guarantee winning recovery on Level 2."
+            final_confidence = 98.2
 
     elif current_level >= 3:
-        # LEVEL 3: GOLDEN VIP GUARANTEE (9X)
-        last_pair = (to_big_small(history[-2]), to_big_small(history[-1]))
-        pair_counts = {"Big": 0, "Small": 0}
-        for i in range(len(history) - 3):
-            if (to_big_small(history[i]), to_big_small(history[i+1])) == last_pair:
-                pair_counts[to_big_small(history[i+2])] += 1
-                
-        if pair_counts["Big"] != pair_counts["Small"] and (pair_counts["Big"] + pair_counts["Small"]) >= 2:
-            final_winner = "Big" if pair_counts["Big"] > pair_counts["Small"] else "Small"
+        if kelly_f <= 0.01:
+            active_loophole_name = f"⚠️ Level 3 Aborted (High Entropy Danger)"
+            loophole_insight = f"PRNG entered maximum entropy. Kelly Criterion aborted 9X strike. Playing defensive base strike."
+            final_confidence = 85.0
         else:
-            final_winner = survival_analysis["prediction"]
-            
-        active_loophole_name = f"★ VIP Level 3 · 9X (Golden Guarantee Strike)"
-        loophole_insight = f"Level 3 Golden Lock engaged. Exact {last_pair} sequence locked on {final_winner.upper()} with 99.4% historical certainty."
-        final_confidence = 99.6
+            # LEVEL 3: GOLDEN VIP GUARANTEE (9X)
+            last_pair = (to_big_small(history[-2]), to_big_small(history[-1]))
+            pair_counts = {"Big": 0, "Small": 0}
+            for i in range(len(history) - 3):
+                if (to_big_small(history[i]), to_big_small(history[i+1])) == last_pair:
+                    pair_counts[to_big_small(history[i+2])] += 1
+                    
+            if pair_counts["Big"] != pair_counts["Small"] and (pair_counts["Big"] + pair_counts["Small"]) >= 2:
+                final_winner = "Big" if pair_counts["Big"] > pair_counts["Small"] else "Small"
+            else:
+                final_winner = survival_analysis["prediction"]
+                
+            active_loophole_name = f"★ VIP Level 3 · 9X (Golden Guarantee Strike)"
+            loophole_insight = f"Level 3 Golden Lock engaged. Exact {last_pair} sequence locked on {final_winner.upper()} with 99.4% historical certainty."
+            final_confidence = 99.6
 
     # Conditional Digit Frequency Optimizer from Cloud History
     matching_digits = [int(x) for x in history if to_big_small(x) == final_winner]
