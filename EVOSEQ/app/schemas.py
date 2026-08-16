@@ -60,3 +60,21 @@ class FeatureSnapshot(Base):
     sequence_no = Column(BigInteger, index=True, nullable=False)
     features = Column(JSON, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class FeatureVectorRecord(Base):
+    __tablename__ = "feature_vectors"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    sequence_no = Column(BigInteger, unique=True, index=True, nullable=False)
+    window_size = Column(Integer, nullable=False)
+    feature_vector = Column(JSON, nullable=False)
+    digit_entropy = Column(Float, nullable=True)
+    conditional_entropy_1 = Column(Float, nullable=True)
+    conditional_entropy_2 = Column(Float, nullable=True)
+    conditional_entropy_3 = Column(Float, nullable=True)
+    information_gain_1 = Column(Float, nullable=True)
+    information_gain_2 = Column(Float, nullable=True)
+    information_gain_3 = Column(Float, nullable=True)
+    lz_complexity = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+

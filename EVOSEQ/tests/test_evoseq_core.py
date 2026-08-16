@@ -7,7 +7,8 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.features.basic import digit_distribution, digit_entropy
-from app.features.entropy import shannon_entropy, conditional_entropy
+from app.features.entropy import shannon_entropy
+from app.features.conditional_entropy import conditional_entropy
 from app.features.ngrams import ngram_counts, normalized_ngram_counts
 from app.features.runs import run_lengths, run_statistics
 from app.models.uniform import UniformModel
