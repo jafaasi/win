@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: evoseq-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: evoseq
+      POSTGRES_PASSWORD: evoseq_secret_password
+      POSTGRES_DB: evoseq
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+
+volumes:
+  postgres_data:
