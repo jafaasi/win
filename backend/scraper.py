@@ -128,9 +128,12 @@ if __name__ == "__main__":
             self.wfile.write(b"AI Engine Daemon is running.")
 
     def run_dummy_server():
-        with socketserver.TCPServer(("", port), HealthCheckHandler) as httpd:
-            print(f"✅ Dummy health-check server listening on port {port}")
-            httpd.serve_forever()
+        try:
+            server = http.server.HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+            print(f"✅ Dummy health-check server listening on 0.0.0.0:{port}")
+            server.serve_forever()
+        except Exception as e:
+            print(f"Dummy server error: {e}")
             
     threading.Thread(target=run_dummy_server, daemon=True).start()
 
