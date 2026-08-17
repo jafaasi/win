@@ -111,16 +111,25 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
         # Poll every 10 seconds to catch every 30-second draw instantly
         await asyncio.sleep(10)
 
-app = FastAPI()
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Launch the infinite scraper daemon in the background of the FastAPI event loop
+    task = asyncio.create_task(run_scraper_daemon(max_duration_seconds=18000))
+    yield
+    task.cancel()
+
+app = FastAPI(lifespan=lifespan)
 
 @app.get("/")
 def read_root():
-    return {"status": "AI Engine Daemon is running 24/7"}
+    return {"status": "AI Engine Daemon is running 24/7", "service": "EVOSEQ WinGo Brain"}
 
-@app.on_event("startup")
-async def startup_event():
-    # Launch the infinite scraper daemon in the background of the FastAPI event loop
-    asyncio.create_task(run_scraper_daemon(max_duration_seconds=18000))
+@app.get("/health")
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 if __name__ == "__main__":
     # If run with --once argument, run a single shot, otherwise run continuous daemon
@@ -128,5 +137,5 @@ if __name__ == "__main__":
         asyncio.run(run_scraper_daemon(max_duration_seconds=15))
     else:
         port = int(os.environ.get("PORT", 10000))
-        print(f"🚀 Starting FastAPI Server on port {port} for Render compatibility...", flush=True)
-        uvicorn.run(app, host="0.0.0.0", port=port)
+        print(f"🚀 Starting FastAPI Server on 0.0.0.0:{port} for Render compatibility...", flush=True)
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

@@ -8,7 +8,9 @@ import os
 from backend.database import save_ai_brain_state
 
 # Add EVOSEQ path for Python imports
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'EVOSEQ'))
+evoseq_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'EVOSEQ')
+if evoseq_path not in sys.path:
+    sys.path.insert(0, evoseq_path)
 
 # The new Adaptive RNG Pipeline
 from app.ensemble.predictor import AdaptiveRNGPredictor
