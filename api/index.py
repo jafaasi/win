@@ -308,6 +308,12 @@ def generate_multi_horizon_probabilities(history):
             "confidence": 50.0,
             "targetDigit": 7,
             "hedgeDigit": 9,
+            "stochasticPrediction": {
+                "prediction": "Small",
+                "confidence": 50.0,
+                "targetDigit": 2,
+                "hedgeDigit": 0
+            },
             "strikeQuality": "DEFENSIVE_EQUILIBRIUM",
             "aleatoricEntropy": 3.3219,
             "modelDisagreement": 0.012,
@@ -507,6 +513,12 @@ def exploit_all_loopholes(history, db=None, current_level=1, last_miss_direction
             "confidence": 50.0,
             "targetNum": 7,
             "hedgeNum": 9,
+            "stochasticPrediction": {
+                "prediction": "Small",
+                "confidence": 50.0,
+                "targetDigit": 2,
+                "hedgeDigit": 0
+            },
             "patternName": "Quantum Neural Initializer",
             "strikeQuality": "DEFENSIVE_EQUILIBRIUM",
             "loopholeInsight": "Calibrating self-evolving neural network on incoming history.",
@@ -599,6 +611,7 @@ def exploit_all_loopholes(history, db=None, current_level=1, last_miss_direction
         "h1": multi_h["h1"],
         "h2": multi_h["h2"],
         "h3": multi_h["h3"],
+        "stochasticPrediction": multi_h.get("stochasticPrediction"),
         "aleatoricEntropy": multi_h["aleatoricEntropy"],
         "modelDisagreement": multi_h["modelDisagreement"],
         "familyWeights": multi_h["familyWeights"],
@@ -713,6 +726,7 @@ def compute_state(client_payload=None, init=False):
         "h1": ai.get("h1", [0.1] * 10),
         "h2": ai.get("h2", [0.1] * 10),
         "h3": ai.get("h3", [0.1] * 10),
+        "stochasticPrediction": ai.get("stochasticPrediction"),
         "aleatoricEntropy": ai.get("aleatoricEntropy", 3.22),
         "modelDisagreement": ai.get("modelDisagreement", 0.045),
         "familyWeights": ai.get("familyWeights", {"statistical": 0.35, "recurrent": 0.35, "neural": 0.30}),
