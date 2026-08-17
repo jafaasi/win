@@ -11,25 +11,26 @@ class BaseModel:
     def predict_proba(self, recent_values: np.ndarray) -> np.ndarray:
         raise NotImplementedError
 
-    def evaluate(self, sequence: np.ndarray) -> float:
+    def evaluate(self, sequence: np.ndarray, val_window: int = 30) -> float:
         """
-        Evaluate model on a sequence. Returns average negative log-likelihood (log loss).
+        Evaluate model on recent slice of sequence. Returns average negative log-likelihood (log loss).
         Lower is better.
         """
-        if len(sequence) == 0:
+        if len(sequence) < 2:
             return math.log(self.num_classes)
             
+        start_idx = max(1, len(sequence) - val_window)
         loss = 0.0
-        # For simplicity in evaluation, we evaluate step-by-step
-        # In a real high-perf system, this would be vectorized
-        for i in range(1, len(sequence)):
+        count = 0
+        for i in range(start_idx, len(sequence)):
             ctx = sequence[:i]
             target = sequence[i]
             probs = self.predict_proba(ctx)
             p = max(1e-9, probs[target])
             loss -= np.log(p)
+            count += 1
             
-        return float(loss / max(1, len(sequence) - 1))
+        return float(loss / max(1, count))
 
 class UniformModel(BaseModel):
     """

@@ -111,8 +111,8 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
         except Exception as e:
             print(f"Daemon Cycle Note: {e}")
             
-        # Poll every 10 seconds to catch every 30-second draw instantly
-        await asyncio.sleep(10)
+        # Poll every 1.5 seconds to catch every 30-second draw within 1 second of drawing
+        await asyncio.sleep(1.5)
 
 from contextlib import asynccontextmanager
 

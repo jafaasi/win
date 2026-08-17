@@ -197,10 +197,10 @@ function App() {
     }
   };
 
-  // 2-second continuous background sync
+  // 1-second continuous real-time background sync
   useEffect(() => {
     fetchBackendState();
-    const interval = setInterval(fetchBackendState, 2000);
+    const interval = setInterval(fetchBackendState, 1000);
     return () => clearInterval(interval);
   }, [currentLevel]);
 
