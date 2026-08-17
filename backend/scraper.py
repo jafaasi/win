@@ -4,9 +4,8 @@ import time
 from datetime import datetime
 import sys
 import os
-import threading
-import http.server
-import socketserver
+from fastapi import FastAPI
+import uvicorn
 
 # Ensure we can import from root modules when run via github actions
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -112,33 +111,22 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
         # Poll every 10 seconds to catch every 30-second draw instantly
         await asyncio.sleep(10)
 
-    print(f"✅ Daemon session finished smoothly. Processed {draws_collected} draws.")
+app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return {"status": "AI Engine Daemon is running 24/7"}
+
+@app.on_event("startup")
+async def startup_event():
+    # Launch the infinite scraper daemon in the background of the FastAPI event loop
+    asyncio.create_task(run_scraper_daemon(max_duration_seconds=18000))
 
 if __name__ == "__main__":
-    # Start a dummy HTTP server in a background thread to satisfy Render's Web Service port binding
-    port = int(os.environ.get("PORT", 10000))
-    handler = http.server.SimpleHTTPRequestHandler
-    
-    # We use a custom handler just to return 200 OK instantly
-    class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(200)
-            self.send_header("Content-type", "text/plain")
-            self.end_headers()
-            self.wfile.write(b"AI Engine Daemon is running.")
-
-    def run_dummy_server():
-        try:
-            server = http.server.HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-            print(f"✅ Dummy health-check server listening on 0.0.0.0:{port}")
-            server.serve_forever()
-        except Exception as e:
-            print(f"Dummy server error: {e}")
-            
-    threading.Thread(target=run_dummy_server, daemon=True).start()
-
     # If run with --once argument, run a single shot, otherwise run continuous daemon
     if len(sys.argv) > 1 and sys.argv[1] == "--once":
         asyncio.run(run_scraper_daemon(max_duration_seconds=15))
     else:
-        asyncio.run(run_scraper_daemon(max_duration_seconds=18000))
+        port = int(os.environ.get("PORT", 10000))
+        print(f"🚀 Starting FastAPI Server on port {port} for Render compatibility...", flush=True)
+        uvicorn.run(app, host="0.0.0.0", port=port)
