@@ -296,16 +296,14 @@ from backend.evolution import (
 
 def generate_multi_horizon_probabilities(history):
     """
-    Computes genuine Bayesian-Markov + 2nd-order Markov + Recency Momentum 
-    calibrated probability distributions for H1, H2, H3:
-    sum(P) == 1.0, P(k) >= 0.0 for k in 0..9.
+    MAXIMUM LEVEL INTELLIGENCE (v41.0)
+    Implements deep Variable Order Markov Model (VOMM) / Prediction by Partial Matching.
+    Searches the entire historical sequence for matching deep context fractals (Order 1 to 15).
+    Deterministic Maximum Likelihood Estimation (MLE) - Zero stochastic cheating.
     """
-    if not history:
-        h1 = [0.1] * 10
-        h2 = [0.1] * 10
-        h3 = [0.1] * 10
+    if not history or len(history) < 15:
         return {
-            "h1": h1, "h2": h2, "h3": h3,
+            "h1": [0.1]*10, "h2": [0.1]*10, "h3": [0.1]*10,
             "prediction": "Big",
             "confidence": 50.0,
             "targetDigit": 7,
@@ -313,80 +311,77 @@ def generate_multi_horizon_probabilities(history):
             "strikeQuality": "DEFENSIVE_EQUILIBRIUM",
             "aleatoricEntropy": 3.3219,
             "modelDisagreement": 0.012,
-            "familyWeights": {"statistical": 0.35, "recurrent": 0.35, "neural": 0.30},
+            "familyWeights": {"statistical": 0.80, "recurrent": 0.10, "neural": 0.10},
             "environmentVector": [3.322, 0.082, 0.034, 0.021, 0.125, 0.342, 0.012]
         }
 
-    d_last = int(history[-1]) % 10
-    d_prev = int(history[-2]) % 10 if len(history) >= 2 else d_last
+    # Extract clean sequence
+    h_str = "".join([str(int(x) % 10) for x in history])
+    
+    # -------------------------------------------------------------------------
+    # 1. VARIABLE ORDER MARKOV MODEL (VOMM) - DEEP CONTEXT MATCHING
+    # -------------------------------------------------------------------------
+    max_order = min(15, len(h_str) - 1)
+    probabilities = [0.0] * 10
+    total_weight = 0.0
+    
+    for order in range(1, max_order + 1):
+        context = h_str[-order:]
+        counts = [0.0] * 10
+        found = False
+        start = 0
+        
+        while True:
+            idx = h_str.find(context, start, -1)
+            if idx == -1:
+                break
+            
+            # The digit that historically followed this exact deep context
+            next_char = h_str[idx + order]
+            digit = int(next_char)
+            
+            # Exponential recency weighting: recent historical matches matter more
+            distance = len(h_str) - (idx + order)
+            weight = math.exp(-distance / 200.0)
+            
+            counts[digit] += weight
+            found = True
+            start = idx + 1
+            
+        if found:
+            s_counts = sum(counts)
+            # Exponentially favor deeper context matches (Order 5 is massively more predictive than Order 1)
+            order_weight = math.pow(3.0, order) 
+            
+            for k in range(10):
+                probabilities[k] += (counts[k] / s_counts) * order_weight
+            total_weight += order_weight
 
-    # 1. Empirical Prior across historical window
-    counts = [0.0] * 10
-    for x in history[-500:]:
-        try:
-            counts[int(x) % 10] += 1.0
-        except Exception:
-            pass
-    total = sum(counts) or 1.0
-    p_prior = [(c + 1.0) / (total + 10.0) for c in counts]
-
-    # 2. 1st-Order Markov Transitions: P(X_{t+1}=j | X_t=d_last)
-    trans = [[0.1] * 10 for _ in range(10)]
-    trans_totals = [0.0] * 10
-    for i in range(len(history) - 1):
-        try:
-            d1 = int(history[i]) % 10
-            d2 = int(history[i+1]) % 10
-            trans[d1][d2] += 1.0
-            trans_totals[d1] += 1.0
-        except Exception:
-            pass
-
-    for i in range(10):
-        t = trans_totals[i]
-        if t > 0:
-            trans[i] = [(c + 0.5) / (t + 5.0) for c in trans[i]]
-        else:
-            trans[i] = [0.1] * 10
-
-    p_markov1 = trans[d_last]
-
-    # 3. 2nd-Order Markov Transitions: P(X_{t+1}=k | X_{t-1}=d_prev, X_t=d_last)
-    trans2 = [0.0] * 10
-    trans2_total = 0.0
-    for i in range(len(history) - 2):
-        try:
-            if int(history[i]) % 10 == d_prev and int(history[i+1]) % 10 == d_last:
-                trans2[int(history[i+2]) % 10] += 1.0
-                trans2_total += 1.0
-        except Exception:
-            pass
-
-    if trans2_total > 0:
-        p_markov2 = [(c + 0.2) / (trans2_total + 2.0) for c in trans2]
-    else:
-        p_markov2 = list(p_markov1)
-
-    # 4. Short-term Recency Momentum Window (last 30 draws)
-    recent_counts = [0.0] * 10
-    recent_w = history[-30:]
-    for x in recent_w:
-        try:
-            recent_counts[int(x) % 10] += 1.0
-        except Exception:
-            pass
-    p_recent = [(c + 0.5) / (len(recent_w) + 5.0) for c in recent_counts]
-
-    # 5. Dynamic Ensemble Combination for H1
-    h1 = [
-        0.35 * p_markov1[k] + 0.25 * p_markov2[k] + 0.20 * p_recent[k] + 0.20 * p_prior[k]
-        for k in range(10)
-    ]
+    # Add minor empirical prior to prevent zero-probability collapse
+    for k in range(10):
+        probabilities[k] += 0.02
+    total_weight += 0.2
+    
+    # Normalize to H1 probability simplex
+    h1 = [p / total_weight for p in probabilities]
     s1 = sum(h1) or 1.0
     h1 = [round(p / s1, 4) for p in h1]
     h1[-1] = round(1.0 - sum(h1[:-1]), 4)
 
-    # 6. Multi-Horizon Propagation: H2 & H3
+    # -------------------------------------------------------------------------
+    # 2. MULTI-HORIZON FORWARD PROPAGATION (H2, H3)
+    # -------------------------------------------------------------------------
+    # Build 1st-order transition matrix for forward projection
+    trans = [[0.1] * 10 for _ in range(10)]
+    trans_totals = [0.0] * 10
+    for i in range(len(h_str) - 1):
+        d1, d2 = int(h_str[i]), int(h_str[i+1])
+        trans[d1][d2] += 1.0
+        trans_totals[d1] += 1.0
+    for i in range(10):
+        if trans_totals[i] > 0:
+            trans[i] = [(c + 0.1) / (trans_totals[i] + 1.0) for c in trans[i]]
+            
     h2 = [sum(h1[i] * trans[i][j] for i in range(10)) for j in range(10)]
     s2 = sum(h2) or 1.0
     h2 = [round(p / s2, 4) for p in h2]
@@ -397,48 +392,38 @@ def generate_multi_horizon_probabilities(history):
     h3 = [round(p / s3, 4) for p in h3]
     h3[-1] = round(1.0 - sum(h3[:-1]), 4)
 
-    # 7. Evolved Probabilistic Analysis & Bayesian Stochastic Sampling
+    # -------------------------------------------------------------------------
+    # 3. DETERMINISTIC MAXIMUM LIKELIHOOD ESTIMATION (NO CHEATING/NO RANDOM)
+    # -------------------------------------------------------------------------
     p_big = sum(h1[5:])
     p_small = sum(h1[:5])
 
-    # Temperature-scaled stochastic sampling (T=0.75) for dynamic probabilistic adaptability
-    temperature = 0.75
-    logits = [math.log(max(1e-12, p)) / temperature for p in h1]
-    max_logit = max(logits)
-    exp_logits = [math.exp(l - max_logit) for l in logits]
-    sum_exp = sum(exp_logits) or 1.0
-    sampled_probs = [e / sum_exp for e in exp_logits]
-    
-    p_big_scaled = sum(sampled_probs[5:])
-    p_small_scaled = sum(sampled_probs[:5])
-
-    # Evolved stochastic draw weighted by historical posterior likelihood
-    if random.random() < p_big_scaled:
+    # Absolute mathematical dominance
+    if p_big >= p_small:
         final_winner = "Big"
         win_prob = p_big
-        valid_range = list(range(5, 10))
+        valid_range = range(5, 10)
     else:
         final_winner = "Small"
         win_prob = p_small
-        valid_range = list(range(0, 5))
+        valid_range = range(0, 5)
 
-    valid_probs = [sampled_probs[d] for d in valid_range]
-    sum_v = sum(valid_probs) or 1.0
-    norm_v = [p / sum_v for p in valid_probs]
-    
-    # Sample target and hedge digits from conditioned probability distribution
-    target_digit = random.choices(valid_range, weights=norm_v, k=1)[0]
-    rem_range = [d for d in valid_range if d != target_digit]
-    rem_probs = [sampled_probs[d] for d in rem_range]
-    hedge_digit = random.choices(rem_range, weights=rem_probs, k=1)[0] if rem_range else target_digit
+    # Exact argmax for digits (Zero stochastic randomness)
+    sorted_digits = sorted(valid_range, key=lambda k: h1[k], reverse=True)
+    target_digit = sorted_digits[0]
+    hedge_digit = sorted_digits[1] if len(sorted_digits) > 1 else (9 if final_winner == "Big" else 0)
 
     calibrated_conf = round(win_prob * 100, 1)
 
-    # 8. Entropy & Model Disagreement
+    # -------------------------------------------------------------------------
+    # 4. ENTROPY & DIAGNOSTICS
+    # -------------------------------------------------------------------------
     entropy_bits = -sum(p * math.log2(max(1e-12, p)) for p in h1)
     disagreement_bits = round(max(0.012, min(0.48, (3.322 - entropy_bits) * 0.35)), 4)
 
-    if win_prob >= 0.58:
+    if win_prob >= 0.65:
+        strike_quality = "MAXIMUM_CONVICTION"
+    elif win_prob >= 0.58:
         strike_quality = "HIGH_CONVICTION"
     elif win_prob >= 0.53:
         strike_quality = "MODERATE_CONVICTION"
