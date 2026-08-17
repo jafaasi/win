@@ -4,6 +4,7 @@ import HistoryLog from './components/HistoryLog';
 
 const BACKEND_URL = '/api/state';
 const WINGO_API = '/api/draws';
+const POLL_INTERVAL_MS = 5000;
 
 const STORAGE_KEYS = {
   MASTER_LOGS: 'WINGO_MASTER_ROUND_LOGS_V4',
@@ -158,15 +159,23 @@ function App() {
       }
 
       if (data?.activePrediction) {
-        const nextIss = String(data.activePrediction.nextIssue);
+        const inferredLatest = latestIssue ? Number(latestIssue) : 0;
+        const safeNextIssue = Number(data.activePrediction.nextIssue || inferredLatest + 1);
+        const nextIss = String(Math.max(safeNextIssue, inferredLatest + 1));
         const tagIss = `#${nextIss.slice(-5)}`;
         
         setActivePrediction(prev => {
+          const nextPrediction = {
+            ...data.activePrediction,
+            nextIssue: nextIss,
+            latestIssue: data.activePrediction.latestIssue || latestIssue || nextIss
+          };
+
           if (!prev || String(prev.nextIssue) !== nextIss) {
-            return data.activePrediction;
+            return nextPrediction;
           }
           return {
-            ...data.activePrediction,
+            ...nextPrediction,
             prediction: prev.prediction,
             targetNum: prev.targetNum
           };

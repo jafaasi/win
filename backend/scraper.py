@@ -83,10 +83,11 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
                             ai_result["patternName"] = f"🧬 {registry_state.get('champion_id', 'SSM')} Deep Neural Engine"
                             ai_result["loopholeInsight"] = f"PyTorch EVOSEQ Champion deployed. Validated Walk-Forward Backtest with {registry_state.get('calibration_quality', 0.99)} calibration quality."
                             
+                        ai_result["currentIssue"] = latest_issue
                         ai_result["nextIssue"] = next_issue
                         ai_result["latestIssue"] = latest_issue
 
-                        # Save prediction for the upcoming draw
+                        # Save prediction for the upcoming draw before the issue window expires
                         save_prediction(
                             db=db,
                             issue_number=next_issue,

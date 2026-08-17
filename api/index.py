@@ -712,14 +712,18 @@ def compute_state(client_payload=None, init=False):
             history = [3, 8, 2, 7, 1, 9, 4, 6]
             latest_issue = "51765"
 
+    current_issue = str(latest_issue or ai.get("latestIssue") or ai.get("currentIssue") or "51765")
     if "nextIssue" in ai and ai.get("nextIssue"):
         next_issue = str(ai["nextIssue"])
+        if int(next_issue) <= int(current_issue):
+            next_issue = str(int(current_issue) + 1)
     elif latest_issue:
-        next_issue = str(int(latest_issue) + 1)
+        next_issue = str(int(current_issue) + 1)
     else:
         next_issue = "51766"
 
     active_pred = {
+        "currentIssue": current_issue,
         "prediction": ai["prediction"],
         "confidence": ai["confidence"],
         "level": current_level,
