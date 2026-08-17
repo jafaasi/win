@@ -679,8 +679,14 @@ def compute_state(client_payload=None, init=False):
         # 2. Fetch full unbroken historical verified logs (up to 50,000 rounds)
         recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(50000).all()
         
-        # Run Loophole Exploitation Engine with 3-Level Quantum Inversion & Darwinian Evolution
-        ai = exploit_all_loopholes(history, db=db, current_level=current_level)
+        # --- NEW: Fetch pre-computed live state from Render EVOSEQ PyTorch Daemon ---
+        from backend.database import AIBrainState
+        live_state_record = db.query(AIBrainState).filter(AIBrainState.model_name == "Live_UI_State").order_by(AIBrainState.id.desc()).first()
+        if live_state_record and live_state_record.synaptic_weights:
+            ai = json.loads(live_state_record.synaptic_weights)
+        else:
+            # Fallback to local edge computation if DB state is missing
+            ai = exploit_all_loopholes(history, db=db, current_level=current_level)
         db.close()
     except Exception as e:
         print("DB Sync Note:", e)

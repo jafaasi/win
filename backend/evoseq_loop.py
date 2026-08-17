@@ -97,6 +97,21 @@ def run_evoseq_cycle(history, db):
             print("ModelVersion save note:", e)
 
     # 6. Save Full Registry State to Supabase
+    # --- NEW: Extract Live Prediction for Next Draw using PyTorch ---
+    try:
+        current_X = extract_advanced_features(history[-window_size:])
+        prob_big = champion.forward(current_X)
+        live_inference = {
+            "prediction": "Big" if prob_big >= 0.5 else "Small",
+            "probability_big": float(prob_big),
+            "probability_small": float(1.0 - prob_big),
+            "targetNum": 7 if prob_big >= 0.5 else 2,
+            "hedgeNum": 9 if prob_big >= 0.5 else 0
+        }
+    except Exception as e:
+        print("Inference error:", e)
+        live_inference = None
+
     registry_state = {
         "evolver": evolver.get_population_state(),
         "fusion": fusion.get_state(),
@@ -114,7 +129,8 @@ def run_evoseq_cycle(history, db):
         "drift_level": drift_level,
         "models_tested": evolver.models_tested,
         "active_challengers": evolver.active_challengers,
-        "retired_models": evolver.retired_models
+        "retired_models": evolver.retired_models,
+        "live_inference": live_inference
     }
     
     save_ai_brain_state(
@@ -127,4 +143,7 @@ def run_evoseq_cycle(history, db):
     )
     
     print(f"🏆 Crowned Champion: {champion.genome_id} | Score: {predictive_score} | Null Adv: +{null_adv:.3f} | Brier: {brier:.3f}")
+    if live_inference:
+        print(f"🎯 PyTorch Inference -> {live_inference['prediction']} ({round(live_inference['probability_big']*100 if live_inference['prediction']=='Big' else live_inference['probability_small']*100, 1)}%)")
+        
     return registry_state
