@@ -40,7 +40,9 @@ export default function PredictionDisplay({
   aleatoricEntropy = 3.22,
   modelDisagreement = 0.045,
   familyWeights = null,
-  stochasticPrediction = null
+  stochasticPrediction = null,
+  nextIssue = null,
+  latestIssue = null
 }) {
 
   if (historyLength < 2) {
@@ -93,6 +95,29 @@ export default function PredictionDisplay({
             </span>
           </div>
         </div>
+
+        {/* Active Target Issue Banner */}
+        {nextIssue && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: 'linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, rgba(59, 130, 246, 0.15) 100%)',
+            border: '1px solid rgba(16, 185, 129, 0.35)',
+            borderRadius: '8px',
+            padding: '8px 14px',
+            margin: '0.6rem 0 0.8rem',
+            width: '100%'
+          }}>
+            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#6ee7b7', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span className="pulse" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+              PREDICTING FOR CURRENT ISSUE
+            </span>
+            <span style={{ fontSize: '1rem', fontWeight: 800, color: '#ffffff', fontFamily: 'monospace', letterSpacing: '0.5px' }}>
+              #{String(nextIssue)}
+            </span>
+          </div>
+        )}
 
         {prediction && (
           <div className={`prediction-glow ${isBig ? 'big' : 'small'}`}

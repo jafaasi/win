@@ -83,6 +83,9 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
                             ai_result["patternName"] = f"🧬 {registry_state.get('champion_id', 'SSM')} Deep Neural Engine"
                             ai_result["loopholeInsight"] = f"PyTorch EVOSEQ Champion deployed. Validated Walk-Forward Backtest with {registry_state.get('calibration_quality', 0.99)} calibration quality."
                             
+                        ai_result["nextIssue"] = next_issue
+                        ai_result["latestIssue"] = latest_issue
+
                         # Save prediction for the upcoming draw
                         save_prediction(
                             db=db,
@@ -102,7 +105,7 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
                             weights_json=json.dumps(ai_result),
                             win_rate=registry_state.get("fitness", 50.0) if registry_state else 50.0
                         )
-                        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Draw #{latest_issue} (Number: {draws[0]['number']}) -> Next #{next_issue} Predicted: {ai_result['prediction']} ({ai_result['confidence']}%) | Loophole: {ai_result['patternName']} | Gen: {ai_result.get('generation')}")
+                        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Completed Draw #{latest_issue} (Num: {draws[0]['number']}) -> 🎯 PREDICTED FOR CURRENT ISSUE #{next_issue}: {ai_result['prediction']} ({ai_result['confidence']}%) | {ai_result['patternName']}")
                     finally:
                         db.close()
         except Exception as e:

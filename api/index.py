@@ -701,7 +701,13 @@ def compute_state(client_payload=None, init=False):
             history = [3, 8, 2, 7, 1, 9, 4, 6]
             latest_issue = "51765"
 
-    next_issue = str(int(latest_issue) + 1)
+    if "nextIssue" in ai and ai.get("nextIssue"):
+        next_issue = str(ai["nextIssue"])
+    elif latest_issue:
+        next_issue = str(int(latest_issue) + 1)
+    else:
+        next_issue = "51766"
+
     active_pred = {
         "prediction": ai["prediction"],
         "confidence": ai["confidence"],
@@ -710,6 +716,7 @@ def compute_state(client_payload=None, init=False):
         "targetNum": ai["targetNum"],
         "hedgeNum": ai["hedgeNum"],
         "nextIssue": next_issue,
+        "latestIssue": latest_issue,
         "strikeQuality": ai["strikeQuality"],
         "expertThoughts": ai["loopholeInsight"],
         "generation": ai.get("generation", 1),

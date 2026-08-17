@@ -321,8 +321,13 @@ function App() {
         {/* Live issue indicator */}
         <div className="live-issue-bar">
           <div className="issue-tag">
-            <span className="issue-label">ISSUE:</span>
-            <span className="issue-val">{latestIssue ? `#${String(latestIssue).slice(-5)}` : 'Syncing...'}</span>
+            <span className="issue-label" style={{ color: '#38bdf8' }}>TARGET ISSUE:</span>
+            <span className="issue-val" style={{ color: '#ffffff', fontWeight: 800 }}>
+              {activePrediction?.nextIssue ? `#${String(activePrediction.nextIssue).slice(-5)}` : (latestIssue ? `#${String(Number(latestIssue) + 1).slice(-5)}` : 'Syncing...')}
+            </span>
+            <span style={{ fontSize: '0.75rem', opacity: 0.65, marginLeft: '6px' }}>
+              (Last Outcome: {latestIssue ? `#${String(latestIssue).slice(-5)}` : '...'})
+            </span>
           </div>
           <div className="sync-time">
             Win Rate: {liveWinRate}% ({verifiedWins}W - {verifiedLosses}L · {roundLogs.length} Total Logs)
@@ -370,6 +375,9 @@ function App() {
         aleatoricEntropy={activePrediction?.aleatoricEntropy}
         modelDisagreement={activePrediction?.modelDisagreement}
         familyWeights={activePrediction?.familyWeights}
+        stochasticPrediction={activePrediction?.stochasticPrediction}
+        nextIssue={activePrediction?.nextIssue || (latestIssue ? String(Number(latestIssue) + 1) : null)}
+        latestIssue={latestIssue}
       />
 
 
