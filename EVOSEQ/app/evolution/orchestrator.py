@@ -51,11 +51,11 @@ def spawn_evolved_challengers(
     """
     challengers = []
     
-    # 1. Mutated Markov Models
-    base_mkv_params = champion_params if champion_params and "order" in champion_params else {"order": 2, "smoothing": 0.5}
+    # 1. Mutated Markov Models (Deeper sequences)
+    base_mkv_params = champion_params if champion_params and "order" in champion_params else {"order": 5, "smoothing": 0.1}
     for i in range(2):
         mut_params = mutate_model_parameters("Markov", base_mkv_params, mutation_rate=0.4, exploration_factor=exploration_factor)
-        mkv = MarkovModel(order=mut_params.get("order", 2), smoothing=mut_params.get("smoothing", 0.5), version=f"markov-ord{mut_params.get('order', 2)}-gen{current_gen}.{i+1}")
+        mkv = MarkovModel(order=mut_params.get("order", 5), smoothing=mut_params.get("smoothing", 0.1), version=f"markov-ord{mut_params.get('order', 5)}-gen{current_gen}.{i+1}")
         challengers.append({
             "model_name": "Markov",
             "version": mkv.metadata.version,
@@ -64,9 +64,9 @@ def spawn_evolved_challengers(
             "mutation": mut_params
         })
         
-    # 2. Discrete HMM Latent Regime Models
-    for n_st in [2, 4]:
-        hmm = DiscreteHMM(n_states=n_st, smoothing=1e-3, version=f"hmm-st{n_st}-gen{current_gen}")
+    # 2. Discrete HMM Latent Regime Models (More states for complex patterns)
+    for n_st in [4, 8, 16]:
+        hmm = DiscreteHMM(n_states=n_st, smoothing=1e-4, version=f"hmm-st{n_st}-gen{current_gen}")
         challengers.append({
             "model_name": "DiscreteHMM",
             "version": hmm.metadata.version,
@@ -75,17 +75,17 @@ def spawn_evolved_challengers(
             "mutation": {"n_states": n_st}
         })
         
-    # 3. Mutated Echo State Networks
-    base_esn_params = {"reservoir_size": 64, "spectral_radius": 0.9, "leak_rate": 0.3, "ridge": 1e-4}
+    # 3. Mutated Echo State Networks (Massive Reservoir)
+    base_esn_params = {"reservoir_size": 256, "spectral_radius": 0.95, "leak_rate": 0.1, "ridge": 1e-5}
     for i in range(2):
         mut_esn = mutate_model_parameters("EchoStateNetwork", base_esn_params, mutation_rate=0.5, exploration_factor=exploration_factor)
         esn = EchoStateNetwork(
-            input_size=10,
-            reservoir_size=mut_esn.get("reservoir_size", 64),
-            spectral_radius=mut_esn.get("spectral_radius", 0.9),
-            leak_rate=mut_esn.get("leak_rate", 0.3),
-            ridge=mut_esn.get("ridge", 1e-4),
-            version=f"esn-res{mut_esn.get('reservoir_size', 64)}-gen{current_gen}.{i+1}"
+            input_size=20,
+            reservoir_size=mut_esn.get("reservoir_size", 256),
+            spectral_radius=mut_esn.get("spectral_radius", 0.95),
+            leak_rate=mut_esn.get("leak_rate", 0.1),
+            ridge=mut_esn.get("ridge", 1e-5),
+            version=f"esn-res{mut_esn.get('reservoir_size', 256)}-gen{current_gen}.{i+1}"
         )
         challengers.append({
             "model_name": "EchoStateNetwork",
@@ -95,55 +95,55 @@ def spawn_evolved_challengers(
             "mutation": mut_esn
         })
         
-    # 4. Calibrated PyTorch Causal Transformer
+    # 4. Deep Calibrated PyTorch Causal Transformer
     trans = TransformerSequenceModel(
-        input_size=10,
-        hidden_size=32,
-        heads=2,
-        layers=1,
-        temperature=1.15,
-        version=f"transformer-h32-gen{current_gen}"
+        input_size=20,
+        hidden_size=128,
+        heads=4,
+        layers=2,
+        temperature=1.05,
+        version=f"transformer-h128-gen{current_gen}"
     )
     challengers.append({
         "model_name": "Transformer",
         "version": trans.metadata.version,
         "model_instance": trans,
         "parameters": trans.metadata.parameters,
-        "mutation": {"hidden_size": 32, "heads": 2}
+        "mutation": {"hidden_size": 128, "heads": 4}
     })
 
-    # 5. Structured State Space Model (S4)
+    # 5. Structured State Space Model (S4) - Deep Architecture
     s4_model = S4SequenceModel(
-        input_size=10,
-        hidden_size=32,
-        layers=1,
-        context_length=64,
-        temperature=1.1,
-        version=f"s4-h32-gen{current_gen}"
+        input_size=20,
+        hidden_size=128,
+        layers=2,
+        context_length=128,
+        temperature=1.05,
+        version=f"s4-h128-gen{current_gen}"
     )
     challengers.append({
         "model_name": "S4",
         "version": s4_model.metadata.version,
         "model_instance": s4_model,
         "parameters": s4_model.metadata.parameters,
-        "mutation": {"hidden_size": 32, "layers": 1}
+        "mutation": {"hidden_size": 128, "layers": 2}
     })
 
-    # 6. Mamba Selective State Space Model
+    # 6. Deep Mamba Selective State Space Model
     mamba_model = MambaSequenceModel(
-        input_size=10,
-        hidden_size=32,
-        layers=1,
-        context_length=64,
-        temperature=1.1,
-        version=f"mamba-h32-gen{current_gen}"
+        input_size=20,
+        hidden_size=128,
+        layers=2,
+        context_length=128,
+        temperature=1.05,
+        version=f"mamba-h128-gen{current_gen}"
     )
     challengers.append({
         "model_name": "Mamba",
         "version": mamba_model.metadata.version,
         "model_instance": mamba_model,
         "parameters": mamba_model.metadata.parameters,
-        "mutation": {"hidden_size": 32, "layers": 1}
+        "mutation": {"hidden_size": 128, "layers": 2}
     })
     
     # 7. Null Baseline
