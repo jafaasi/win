@@ -63,7 +63,11 @@ function App() {
     savePersistentLogs(roundLogs, history, currentLevel, pendingPredictions.current);
   }, [roundLogs, history, currentLevel]);
 
+  const isSyncing = useRef(false);
+
   const fetchBackendState = async () => {
+    if (isSyncing.current) return;
+    isSyncing.current = true;
     try {
       // 1. Fetch live draws directly from same-origin proxy
       let clientDraws = [];
@@ -149,40 +153,27 @@ function App() {
         }
       }
 
-      // 5. Update Active Prediction & Register in Pending Map for exact next verification
+      // 5. Update Active Prediction - Rock-Solid Locking per Issue
       if (data?.activePrediction) {
-        setActivePrediction(data.activePrediction);
         const nextIss = String(data.activePrediction.nextIssue);
         const tagIss = `#${nextIss.slice(-5)}`;
+        
+        setActivePrediction(prev => {
+          // Lock prediction steady for the current active issue to eliminate any fluctuation
+          if (!prev || String(prev.nextIssue) !== nextIss) {
+            return data.activePrediction;
+          }
+          return {
+            ...data.activePrediction,
+            prediction: prev.prediction,
+            targetNum: prev.targetNum
+          };
+        });
+
         const predInfo = {
           targetBS: data.activePrediction.prediction,
           targetNum: data.activePrediction.targetNum,
           pattern: data.activePrediction.patternName,
-          level: currentLevel
-        };
-        pendingPredictions.current[nextIss] = predInfo;
-        pendingPredictions.current[tagIss] = predInfo;
-      } else if (clientDraws.length > 0) {
-        const lastNum = Number(clientDraws[0].number);
-        const pred = lastNum >= 5 ? 'Small' : 'Big';
-        const nextIss = String(Number(clientDraws[0].issueNumber) + 1);
-        const tagIss = `#${nextIss.slice(-5)}`;
-        const autoPred = {
-          prediction: pred,
-          confidence: 94.2,
-          level: currentLevel,
-          patternName: "⚡ Casino Loophole Breaker",
-          targetNum: pred === 'Big' ? 7 : 2,
-          hedgeNum: pred === 'Big' ? 9 : 0,
-          nextIssue: nextIss,
-          strikeQuality: "STRONG_STRIKE",
-          expertThoughts: `Loophole detection active. Target locked on ${pred.toUpperCase()}.`
-        };
-        setActivePrediction(autoPred);
-        const predInfo = {
-          targetBS: pred,
-          targetNum: autoPred.targetNum,
-          pattern: autoPred.patternName,
           level: currentLevel
         };
         pendingPredictions.current[nextIss] = predInfo;
@@ -193,7 +184,8 @@ function App() {
       setLastSyncTime(Date.now());
     } catch (err) {
       console.warn("Backend sync note:", err);
-      setSyncStatus('live');
+    } finally {
+      isSyncing.current = false;
     }
   };
 

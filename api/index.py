@@ -665,19 +665,19 @@ def compute_state(client_payload=None, init=False):
         if live_draws:
             save_live_draws(db, live_draws)
             
-        # 1. Fetch full deep historical outcomes from Supabase (up to 50,000 observations)
-        outcomes_list = db.query(Outcome).order_by(Outcome.sequence_no.desc()).limit(50000).all()
+        # 1. Fetch recent historical outcomes from Supabase (fast 100 observations)
+        outcomes_list = db.query(Outcome).order_by(Outcome.sequence_no.desc()).limit(100).all()
         if outcomes_list:
             history = [int(o.digit) for o in reversed(outcomes_list)]
             latest_issue = str(outcomes_list[0].sequence_no)
         else:
-            db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(50000).all()
+            db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(100).all()
             if db_draws:
                 history = [int(d.number) for d in reversed(db_draws)]
                 latest_issue = str(db_draws[0].issue_number)
             
-        # 2. Fetch full unbroken historical verified logs (up to 50,000 rounds)
-        recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(50000).all()
+        # 2. Fetch recent verified logs (last 50 rounds for UI display)
+        recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(50).all()
         
         # --- NEW: Fetch pre-computed live state from Render EVOSEQ PyTorch Daemon ---
         from backend.database import AIBrainState
