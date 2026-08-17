@@ -703,6 +703,9 @@ def compute_state(client_payload=None, init=False):
         print("DB Sync Note:", e)
         ai = exploit_all_loopholes(history, current_level=current_level)
 
+    if not isinstance(ai, dict) or not ai or 'prediction' not in ai or 'confidence' not in ai:
+        ai = exploit_all_loopholes(history, current_level=current_level)
+
 
     if not latest_issue:
         if db_draws:
@@ -722,43 +725,47 @@ def compute_state(client_payload=None, init=False):
     else:
         next_issue = "51766"
 
+    fallback_ai = exploit_all_loopholes(history, current_level=current_level)
+    safe_ai = ai if isinstance(ai, dict) else {}
+    safe_ai = {**fallback_ai, **safe_ai}
+
     active_pred = {
         "currentIssue": current_issue,
-        "prediction": ai["prediction"],
-        "confidence": ai["confidence"],
+        "prediction": safe_ai.get("prediction", fallback_ai["prediction"]),
+        "confidence": safe_ai.get("confidence", fallback_ai["confidence"]),
         "level": current_level,
-        "patternName": ai["patternName"],
-        "targetNum": ai["targetNum"],
-        "hedgeNum": ai["hedgeNum"],
+        "patternName": safe_ai.get("patternName", fallback_ai["patternName"]),
+        "targetNum": safe_ai.get("targetNum", fallback_ai["targetNum"]),
+        "hedgeNum": safe_ai.get("hedgeNum", fallback_ai["hedgeNum"]),
         "nextIssue": next_issue,
         "latestIssue": latest_issue,
-        "strikeQuality": ai["strikeQuality"],
-        "expertThoughts": ai["loopholeInsight"],
-        "generation": ai.get("generation", 1),
-        "totalSamplesTrained": ai.get("totalSamplesTrained", len(history)),
-        "championGenome": ai.get("championGenome", "SSM-Mamba-v1"),
-        "latentRegime": ai.get("latentRegime", "🔬 Calibrating Baseline"),
-        "regimeProbabilities": ai.get("regimeProbabilities", {}),
-        "predictiveScore": ai.get("predictiveScore", 0.54),
-        "calibrationQuality": ai.get("calibrationQuality", 0.96),
-        "stabilityScore": ai.get("stabilityScore", 0.88),
-        "brierScore": ai.get("brierScore", 0.20),
-        "logLoss": ai.get("logLoss", 0.65),
-        "nullAdvantage": ai.get("nullAdvantage", 0.04),
-        "entropy": ai.get("entropy", 3.22),
-        "driftLevel": ai.get("driftLevel", "LOW"),
-        "driftScore": ai.get("driftScore", 0.02),
-        "modelsTested": ai.get("modelsTested", 128),
-        "activeChallengers": ai.get("activeChallengers", 5),
-        "retiredModels": ai.get("retiredModels", 122),
-        "h1": ai.get("h1", [0.1] * 10),
-        "h2": ai.get("h2", [0.1] * 10),
-        "h3": ai.get("h3", [0.1] * 10),
-        "stochasticPrediction": ai.get("stochasticPrediction"),
-        "aleatoricEntropy": ai.get("aleatoricEntropy", 3.22),
-        "modelDisagreement": ai.get("modelDisagreement", 0.045),
-        "familyWeights": ai.get("familyWeights", {"statistical": 0.35, "recurrent": 0.35, "neural": 0.30}),
-        "environmentVector": ai.get("environmentVector", [3.22, 0.08, 0.03, 0.02, 0.12, 0.34, 0.045])
+        "strikeQuality": safe_ai.get("strikeQuality", fallback_ai["strikeQuality"]),
+        "expertThoughts": safe_ai.get("loopholeInsight", fallback_ai["loopholeInsight"]),
+        "generation": safe_ai.get("generation", fallback_ai.get("generation", 1)),
+        "totalSamplesTrained": safe_ai.get("totalSamplesTrained", fallback_ai.get("totalSamplesTrained", len(history))),
+        "championGenome": safe_ai.get("championGenome", fallback_ai.get("championGenome", "SSM-Mamba-v1")),
+        "latentRegime": safe_ai.get("latentRegime", fallback_ai.get("latentRegime", "🔬 Calibrating Baseline")),
+        "regimeProbabilities": safe_ai.get("regimeProbabilities", fallback_ai.get("regimeProbabilities", {})),
+        "predictiveScore": safe_ai.get("predictiveScore", fallback_ai.get("predictiveScore", 0.54)),
+        "calibrationQuality": safe_ai.get("calibrationQuality", fallback_ai.get("calibrationQuality", 0.96)),
+        "stabilityScore": safe_ai.get("stabilityScore", fallback_ai.get("stabilityScore", 0.88)),
+        "brierScore": safe_ai.get("brierScore", fallback_ai.get("brierScore", 0.20)),
+        "logLoss": safe_ai.get("logLoss", fallback_ai.get("logLoss", 0.65)),
+        "nullAdvantage": safe_ai.get("nullAdvantage", fallback_ai.get("nullAdvantage", 0.04)),
+        "entropy": safe_ai.get("entropy", fallback_ai.get("entropy", 3.22)),
+        "driftLevel": safe_ai.get("driftLevel", fallback_ai.get("driftLevel", "LOW")),
+        "driftScore": safe_ai.get("driftScore", fallback_ai.get("driftScore", 0.02)),
+        "modelsTested": safe_ai.get("modelsTested", fallback_ai.get("modelsTested", 128)),
+        "activeChallengers": safe_ai.get("activeChallengers", fallback_ai.get("activeChallengers", 5)),
+        "retiredModels": safe_ai.get("retiredModels", fallback_ai.get("retiredModels", 122)),
+        "h1": safe_ai.get("h1", fallback_ai.get("h1", [0.1] * 10)),
+        "h2": safe_ai.get("h2", fallback_ai.get("h2", [0.1] * 10)),
+        "h3": safe_ai.get("h3", fallback_ai.get("h3", [0.1] * 10)),
+        "stochasticPrediction": safe_ai.get("stochasticPrediction", fallback_ai.get("stochasticPrediction")),
+        "aleatoricEntropy": safe_ai.get("aleatoricEntropy", fallback_ai.get("aleatoricEntropy", 3.22)),
+        "modelDisagreement": safe_ai.get("modelDisagreement", fallback_ai.get("modelDisagreement", 0.045)),
+        "familyWeights": safe_ai.get("familyWeights", fallback_ai.get("familyWeights", {"statistical": 0.35, "recurrent": 0.35, "neural": 0.30})),
+        "environmentVector": safe_ai.get("environmentVector", fallback_ai.get("environmentVector", [3.22, 0.08, 0.03, 0.02, 0.12, 0.34, 0.045]))
     }
 
 
