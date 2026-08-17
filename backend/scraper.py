@@ -8,7 +8,7 @@ import os
 # Ensure we can import from root modules when run via github actions
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.database import SessionLocal, Draw, save_live_draws, save_prediction
+from backend.database import SessionLocal, Outcome, Draw, save_live_draws, save_prediction
 from api.index import exploit_all_loopholes
 
 API_ENDPOINT = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
@@ -47,16 +47,21 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
                         # 1. Sync draws & verify pending prediction logs
                         new_draws = save_live_draws(db, draws)
                         
-                        # 2. Extract full deep sequence history from Supabase (up to 50,000 draws)
-                        db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(50000).all()
-                        if db_draws:
-                            history = [int(d.number) for d in reversed(db_draws)]
+                        # 2. Extract full deep sequence history from Supabase (up to 50,000 outcomes)
+                        outcomes_list = db.query(Outcome).order_by(Outcome.sequence_no.desc()).limit(50000).all()
+                        if outcomes_list:
+                            history = [int(o.digit) for o in reversed(outcomes_list)]
                         else:
-                            history = [int(d["number"]) for d in reversed(draws)]
+                            db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(50000).all()
+                            if db_draws:
+                                history = [int(d.number) for d in reversed(db_draws)]
+                            else:
+                                history = [int(d["number"]) for d in reversed(draws)]
                         
                         # 3. EVOSEQ Continuous Evolution Loop (The heavy lifting)
                         from backend.evoseq_loop import run_evoseq_cycle
                         run_evoseq_cycle(history, db)
+
                         
                         # 4. Fast Edge Inference (Reads EVOSEQ_Registry)
                         ai_result = exploit_all_loopholes(history, db=db)

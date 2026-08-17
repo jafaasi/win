@@ -16,11 +16,22 @@ from sqlalchemy.pool import NullPool
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 if DATABASE_URL:
-    # Use standard SQLAlchemy connection for Postgres/MySQL
-    # Fix for Heroku/Render postgres:// -> postgresql://
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    engine = create_engine(DATABASE_URL, poolclass=NullPool, connect_args={"connect_timeout": 5})
+    engine = create_engine(
+        DATABASE_URL,
+        poolclass=NullPool,
+
+        pool_pre_ping=True,
+        connect_args={
+            "connect_timeout": 10,
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 5
+        }
+    )
+
 else:
     # Fallback to local SQLite
     DB_PATH = os.path.join(os.path.dirname(__file__), 'wingo_history.db')
