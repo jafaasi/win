@@ -39,7 +39,8 @@ export default function PredictionDisplay({
   h3 = null,
   aleatoricEntropy = 3.22,
   modelDisagreement = 0.045,
-  familyWeights = null
+  familyWeights = null,
+  stochasticPrediction = null
 }) {
 
   if (historyLength < 2) {
@@ -110,61 +111,83 @@ export default function PredictionDisplay({
               </span>
             </div>
 
-            {/* Pattern Intelligence HUD */}
-            {detectedPattern && (
-              <div className="pattern-hud-card" style={{ marginTop: '0.5rem' }}>
-                <div className="pattern-hud-header">
-                  <span className="pattern-hud-icon">{detectedPattern.icon}</span>
-                  <span className="pattern-hud-name">{detectedPattern.name}</span>
-                </div>
-                <div className="pattern-hud-desc">{detectedPattern.desc}</div>
+            {/* Probability Split Bar */}
+            <div className="prob-split-container" style={{ marginTop: '0.5rem', marginBottom: '1rem' }}>
+              <div className="prob-split-header">
+                <span style={{ color: 'var(--big-primary)', fontWeight: 800 }}>BIG: {bigProb}%</span>
+                <span style={{ color: 'var(--small-primary)', fontWeight: 800 }}>SMALL: {smallProb}%</span>
               </div>
-            )}
+              <div className="prob-split-track">
+                <div className="prob-split-fill-big" style={{ width: `${bigProb}%` }} />
+                <div className="prob-split-fill-small" style={{ width: `${smallProb}%` }} />
+              </div>
+            </div>
 
-            {/* Primary & Hedge Number Targets */}
-            <div className="sniper-container">
-              <div className="sniper-card primary">
-                <span className="sniper-label">SNIPER NUMBER</span>
-                <span className={`sniper-digit ${isBig ? 'big' : 'small'}`}>{predictedNumber}</span>
+            {/* DUAL INTELLIGENCE DISPLAY (SIDE BY SIDE) */}
+            <div style={{ display: 'grid', gridTemplateColumns: stochasticPrediction ? '1fr 1fr' : '1fr', gap: '1rem', width: '100%' }}>
+              
+              {/* MAX INTELLIGENCE (VOMM) */}
+              <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: '12px', padding: '1rem', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ fontSize: '0.75rem', letterSpacing: '0.05em', color: '#fbbf24', marginBottom: '0.5rem', textAlign: 'center', fontWeight: 'bold' }}>
+                  MAXIMUM INTELLIGENCE (VOMM)
+                </div>
+                
+                <div className="sniper-container">
+                  <div className="sniper-card primary" style={{ minWidth: 0, padding: '0.5rem' }}>
+                    <span className="sniper-label" style={{ fontSize: '0.65rem' }}>TARGET</span>
+                    <span className={`sniper-digit ${isBig ? 'big' : 'small'}`} style={{ fontSize: '1.5rem' }}>{predictedNumber}</span>
+                  </div>
+                  {hedgeNumber !== null && (
+                    <div className="sniper-card hedge" style={{ minWidth: 0, padding: '0.5rem' }}>
+                      <span className="sniper-label" style={{ fontSize: '0.65rem' }}>HEDGE</span>
+                      <span className="sniper-digit hedge" style={{ fontSize: '1.5rem' }}>{hedgeNumber}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className={`prediction-label-text ${isBig ? 'big' : 'small'}`} style={{ fontSize: '2rem', margin: '0.5rem 0' }}>
+                  {isBig ? 'BIG' : 'SMALL'}
+                </div>
+
+                <div style={{ textAlign: 'center', fontSize: '0.85rem', color: ringColor, fontWeight: 'bold' }}>
+                  CONFIDENCE: {Math.round(numConfidence)}%
+                </div>
               </div>
-              {hedgeNumber !== null && (
-                <div className="sniper-card hedge">
-                  <span className="sniper-label">SAFETY HEDGE</span>
-                  <span className="sniper-digit hedge">{hedgeNumber}</span>
+
+              {/* RANDOM/STOCHASTIC INTELLIGENCE */}
+              {stochasticPrediction && (
+                <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: '12px', padding: '1rem', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ fontSize: '0.75rem', letterSpacing: '0.05em', color: '#a78bfa', marginBottom: '0.5rem', textAlign: 'center', fontWeight: 'bold' }}>
+                    RANDOM INTELLIGENCE (STOCHASTIC)
+                  </div>
+                  
+                  <div className="sniper-container">
+                    <div className="sniper-card primary" style={{ minWidth: 0, padding: '0.5rem' }}>
+                      <span className="sniper-label" style={{ fontSize: '0.65rem' }}>TARGET</span>
+                      <span className={`sniper-digit ${stochasticPrediction.prediction === 'Big' ? 'big' : 'small'}`} style={{ fontSize: '1.5rem' }}>{stochasticPrediction.targetDigit}</span>
+                    </div>
+                    {stochasticPrediction.hedgeDigit !== null && (
+                      <div className="sniper-card hedge" style={{ minWidth: 0, padding: '0.5rem' }}>
+                        <span className="sniper-label" style={{ fontSize: '0.65rem' }}>HEDGE</span>
+                        <span className="sniper-digit hedge" style={{ fontSize: '1.5rem' }}>{stochasticPrediction.hedgeDigit}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className={`prediction-label-text ${stochasticPrediction.prediction === 'Big' ? 'big' : 'small'}`} style={{ fontSize: '2rem', margin: '0.5rem 0' }}>
+                    {stochasticPrediction.prediction.toUpperCase()}
+                  </div>
+
+                  <div style={{ textAlign: 'center', fontSize: '0.85rem', color: stochasticPrediction.prediction === 'Big' ? 'var(--big-primary)' : 'var(--small-primary)', fontWeight: 'bold' }}>
+                    CONFIDENCE: {Math.round(stochasticPrediction.confidence)}%
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Primary Main Decision Callout */}
-            <div className={`prediction-label-text ${isBig ? 'big' : 'small'}`}>
-              {isBig ? 'BIG' : 'SMALL'}
-            </div>
-
-            {/* Multi-Asset Signals: Color, Parity, Kelly */}
-            <div className="multi-signal-grid">
-              <div className="signal-pill">
-                <span className="sp-label">COLOR TARGET</span>
-                <span className="sp-val" style={{ color: predictedColor?.code === 'green' ? 'var(--big-primary)' : predictedColor?.code === 'red' ? 'var(--small-primary)' : '#c084fc' }}>
-                  {predictedColor?.label || '🟢 Green'}
-                </span>
-              </div>
-              <div className="signal-pill">
-                <span className="sp-label">PARITY</span>
-                <span className="sp-val" style={{ color: '#00e5ff' }}>
-                  {parity?.name ? `${parity.name.toUpperCase()} (88%)` : 'ODD (88%)'}
-                </span>
-              </div>
-              <div className="signal-pill">
-                <span className="sp-label">VIP SIZING</span>
-                <span className="sp-val" style={{ color: '#fbbf24' }}>
-                  {kelly?.multiplier || '1x'} ({kelly?.risk || 'L1 Base'})
-                </span>
-              </div>
-            </div>
-
             {/* Cryptographic Reverse Hash Cracker Box */}
             {cryptoSeedState && (
-              <div className="crypto-seed-banner">
+              <div className="crypto-seed-banner" style={{ marginTop: '1rem' }}>
                 <div className="crypto-seed-head">
                   <span className="crypto-lock-icon">🔓</span>
                   <span className="crypto-title">REVERSE HASH CRACKER</span>
@@ -183,54 +206,6 @@ export default function PredictionDisplay({
                 </div>
               </div>
             )}
-
-            {/* Tactical Rationale */}
-            {expertThoughts && (
-              <div className="pro-thoughts-box">
-                <div className="pro-thoughts-label">
-                  <span>💡 VIP TACTICAL RATIONALE</span>
-                </div>
-                <div className="pro-thoughts-text">
-                  "{expertThoughts}"
-                </div>
-              </div>
-            )}
-
-            {/* Confidence Gauge */}
-            <div className="confidence-ring-wrapper" style={{ marginTop: '0.75rem' }}>
-              <div className="confidence-ring">
-                <svg width="72" height="72" viewBox="0 0 64 64">
-                  <circle className="ring-bg" cx="32" cy="32" r="28" />
-                  <circle
-                    className="ring-fill"
-                    cx="32" cy="32" r="28"
-                    stroke={ringColor}
-                    strokeDasharray={circumference}
-                    strokeDashoffset={offset}
-                  />
-                </svg>
-                <div className="ring-value" style={{ color: ringColor }}>
-                  {Math.round(numConfidence)}
-                </div>
-              </div>
-              <div className="confidence-info">
-                <div className="ci-label">VIP Conviction</div>
-                <div className="ci-value" style={{ color: ringColor }}>{numConfidence}%</div>
-                <div className="ci-sub">3-Level Martingale Guarantee</div>
-              </div>
-            </div>
-
-            {/* Probability Split Bar */}
-            <div className="prob-split-container">
-              <div className="prob-split-header">
-                <span style={{ color: 'var(--big-primary)', fontWeight: 800 }}>BIG: {bigProb}%</span>
-                <span style={{ color: 'var(--small-primary)', fontWeight: 800 }}>SMALL: {smallProb}%</span>
-              </div>
-              <div className="prob-split-track">
-                <div className="prob-split-fill-big" style={{ width: `${bigProb}%` }} />
-                <div className="prob-split-fill-small" style={{ width: `${smallProb}%` }} />
-              </div>
-            </div>
           </div>
         ) : (
           <div className="prediction-awaiting">
