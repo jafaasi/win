@@ -88,6 +88,15 @@ def health_check():
 def get_api_state():
     return compute_state(init=True)
 
+@app.post("/api/state")
+def post_api_state(payload: dict | None = None):
+    try:
+        if payload is None:
+            return compute_state(init=True)
+        return compute_state(payload, init=True)
+    except Exception:
+        return compute_state(init=True)
+
 @app.get("/api/models")
 def get_models_population():
     db = SessionLocal()
