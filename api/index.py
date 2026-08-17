@@ -294,25 +294,43 @@ from backend.evolution import (
     extract_advanced_features, kelly_fraction
 )
 
-def generate_multi_horizon_probabilities(history, final_winner, target_digit):
+def generate_multi_horizon_probabilities(history):
     """
-    Computes calibrated probability distributions for H1, H2, H3:
+    Computes genuine Bayesian-Markov + 2nd-order Markov + Recency Momentum 
+    calibrated probability distributions for H1, H2, H3:
     sum(P) == 1.0, P(k) >= 0.0 for k in 0..9.
     """
+    if not history:
+        h1 = [0.1] * 10
+        h2 = [0.1] * 10
+        h3 = [0.1] * 10
+        return {
+            "h1": h1, "h2": h2, "h3": h3,
+            "prediction": "Big",
+            "confidence": 50.0,
+            "targetDigit": 7,
+            "hedgeDigit": 9,
+            "strikeQuality": "DEFENSIVE_EQUILIBRIUM",
+            "aleatoricEntropy": 3.3219,
+            "modelDisagreement": 0.012,
+            "familyWeights": {"statistical": 0.35, "recurrent": 0.35, "neural": 0.30},
+            "environmentVector": [3.322, 0.082, 0.034, 0.021, 0.125, 0.342, 0.012]
+        }
+
+    d_last = int(history[-1]) % 10
+    d_prev = int(history[-2]) % 10 if len(history) >= 2 else d_last
+
+    # 1. Empirical Prior across historical window
     counts = [0.0] * 10
-    total = 0
     for x in history[-500:]:
         try:
-            d = int(x) % 10
-            counts[d] += 1.0
-            total += 1
+            counts[int(x) % 10] += 1.0
         except Exception:
             pass
-    if total == 0:
-        base_h1 = [0.1] * 10
-    else:
-        base_h1 = [(c + 1.0) / (total + 10.0) for c in counts]
-        
+    total = sum(counts) or 1.0
+    p_prior = [(c + 1.0) / (total + 10.0) for c in counts]
+
+    # 2. 1st-Order Markov Transitions: P(X_{t+1}=j | X_t=d_last)
     trans = [[0.1] * 10 for _ in range(10)]
     trans_totals = [0.0] * 10
     for i in range(len(history) - 1):
@@ -323,50 +341,95 @@ def generate_multi_horizon_probabilities(history, final_winner, target_digit):
             trans_totals[d1] += 1.0
         except Exception:
             pass
+
     for i in range(10):
-        tot = trans_totals[i]
-        if tot > 0:
-            trans[i] = [c / tot for c in trans[i]]
+        t = trans_totals[i]
+        if t > 0:
+            trans[i] = [(c + 0.5) / (t + 5.0) for c in trans[i]]
         else:
             trans[i] = [0.1] * 10
-            
-    h1 = list(base_h1)
-    if final_winner == "Big":
-        for i in range(5, 10):
-            h1[i] *= 1.4
-        if target_digit is not None and 5 <= target_digit <= 9:
-            h1[target_digit] *= 1.3
+
+    p_markov1 = trans[d_last]
+
+    # 3. 2nd-Order Markov Transitions: P(X_{t+1}=k | X_{t-1}=d_prev, X_t=d_last)
+    trans2 = [0.0] * 10
+    trans2_total = 0.0
+    for i in range(len(history) - 2):
+        try:
+            if int(history[i]) % 10 == d_prev and int(history[i+1]) % 10 == d_last:
+                trans2[int(history[i+2]) % 10] += 1.0
+                trans2_total += 1.0
+        except Exception:
+            pass
+
+    if trans2_total > 0:
+        p_markov2 = [(c + 0.2) / (trans2_total + 2.0) for c in trans2]
     else:
-        for i in range(0, 5):
-            h1[i] *= 1.4
-        if target_digit is not None and 0 <= target_digit <= 4:
-            h1[target_digit] *= 1.3
-            
-    sum_h1 = sum(h1)
-    h1 = [round(p / sum_h1, 4) for p in h1]
+        p_markov2 = list(p_markov1)
+
+    # 4. Short-term Recency Momentum Window (last 30 draws)
+    recent_counts = [0.0] * 10
+    recent_w = history[-30:]
+    for x in recent_w:
+        try:
+            recent_counts[int(x) % 10] += 1.0
+        except Exception:
+            pass
+    p_recent = [(c + 0.5) / (len(recent_w) + 5.0) for c in recent_counts]
+
+    # 5. Dynamic Ensemble Combination for H1
+    h1 = [
+        0.35 * p_markov1[k] + 0.25 * p_markov2[k] + 0.20 * p_recent[k] + 0.20 * p_prior[k]
+        for k in range(10)
+    ]
+    s1 = sum(h1) or 1.0
+    h1 = [round(p / s1, 4) for p in h1]
     h1[-1] = round(1.0 - sum(h1[:-1]), 4)
-    
-    h2 = [0.0] * 10
-    for j in range(10):
-        h2[j] = sum(h1[i] * trans[i][j] for i in range(10))
-    sum_h2 = sum(h2)
-    h2 = [round(p / sum_h2, 4) for p in h2]
+
+    # 6. Multi-Horizon Propagation: H2 & H3
+    h2 = [sum(h1[i] * trans[i][j] for i in range(10)) for j in range(10)]
+    s2 = sum(h2) or 1.0
+    h2 = [round(p / s2, 4) for p in h2]
     h2[-1] = round(1.0 - sum(h2[:-1]), 4)
-    
-    h3 = [0.0] * 10
-    for k in range(10):
-        h3[k] = sum(h2[j] * trans[j][k] for j in range(10))
-    sum_h3 = sum(h3)
-    h3 = [round(p / sum_h3, 4) for p in h3]
+
+    h3 = [sum(h2[j] * trans[j][k] for j in range(10)) for k in range(10)]
+    s3 = sum(h3) or 1.0
+    h3 = [round(p / s3, 4) for p in h3]
     h3[-1] = round(1.0 - sum(h3[:-1]), 4)
-    
+
+    # 7. Unbiased Outcome Determination
+    p_big = sum(h1[5:])
+    p_small = sum(h1[:5])
+
+    final_winner = "Big" if p_big >= p_small else "Small"
+    win_prob = max(p_big, p_small)
+    calibrated_conf = round(win_prob * 100, 1)
+
+    valid_range = range(5, 10) if final_winner == "Big" else range(0, 5)
+    sorted_digits = sorted(valid_range, key=lambda k: h1[k], reverse=True)
+    target_digit = sorted_digits[0]
+    hedge_digit = sorted_digits[1] if len(sorted_digits) > 1 else (9 if final_winner == "Big" else 0)
+
+    # 8. Entropy & Model Disagreement
     entropy_bits = -sum(p * math.log2(max(1e-12, p)) for p in h1)
-    disagreement_bits = round(max(0.012, min(0.48, (3.322 - entropy_bits) * 0.25)), 4)
-    
+    disagreement_bits = round(max(0.012, min(0.48, (3.322 - entropy_bits) * 0.35)), 4)
+
+    if win_prob >= 0.58:
+        strike_quality = "HIGH_CONVICTION"
+    elif win_prob >= 0.53:
+        strike_quality = "MODERATE_CONVICTION"
+    else:
+        strike_quality = "DEFENSIVE_EQUILIBRIUM"
+
     return {
         "h1": h1,
         "h2": h2,
         "h3": h3,
+        "prediction": final_winner,
+        "confidence": calibrated_conf,
+        "targetDigit": target_digit,
+        "hedgeDigit": hedge_digit,
+        "strikeQuality": strike_quality,
         "aleatoricEntropy": round(entropy_bits, 4),
         "modelDisagreement": disagreement_bits,
         "familyWeights": {
@@ -393,11 +456,11 @@ def exploit_all_loopholes(history, db=None, current_level=1, last_miss_direction
     if not history or len(history) < 2:
         return {
             "prediction": "Big",
-            "confidence": 96.8,
+            "confidence": 50.0,
             "targetNum": 7,
             "hedgeNum": 9,
             "patternName": "Quantum Neural Initializer",
-            "strikeQuality": "NORMAL",
+            "strikeQuality": "DEFENSIVE_EQUILIBRIUM",
             "loopholeInsight": "Calibrating self-evolving neural network on incoming history.",
             "generation": 1,
             "totalSamplesTrained": 0,
@@ -409,35 +472,29 @@ def exploit_all_loopholes(history, db=None, current_level=1, last_miss_direction
     # 1. Detect Latent Markov Regime of the PRNG
     regime_info = detect_latent_regime(history)
 
-    # 2. Base Multi-Model Consensus (Level 1 Foundation)
-    survival_analysis = compute_run_survival(history)
-    ngram_analysis = scan_historical_ngrams(history)
-    markov_analysis = exploit_markov_transitions(history)
-    wave_analysis = exploit_harmonic_waves(history)
-    vacuum_analysis = exploit_entropy_vacuum(history)
+    # 2. Compute Grounded Multi-Horizon Probability Simplex
+    multi_h = generate_multi_horizon_probabilities(history)
+    final_winner = multi_h["prediction"]
+    final_confidence = multi_h["confidence"]
+    target_digit = multi_h["targetDigit"]
+    hedge_digit = multi_h["hedgeDigit"]
+    strike_quality = multi_h["strikeQuality"]
 
-    # 3. EVOSEQ Inference Engine (Read-Only from Supabase Registry)
-    evolver = PopulationEvolver(pop_size=6)
-    fusion = OnlineLogisticFusion(n_models=6)
-    lz_predictor = LZContextPredictor(max_order=6)
-    
+    # 3. Evolution Metadata from Registry
     generation = 1
     champion_name = "SSM-Mamba-v1"
-    champion_fitness = 94.5
-    prob_big = 0.5
     predictive_score = 0.542
     calibration_quality = 0.965
     stability_score = 0.892
     brier_score = 0.208
     log_loss_val = 0.635
     null_adv = 0.042
-    entropy_val = 3.219
+    entropy_val = multi_h["aleatoricEntropy"]
     drift_level = "LOW"
     drift_score = 0.031
     models_tested = 128
     active_challengers = 5
     retired_models = 122
-    jsd_alert = False
     
     if db:
         try:
@@ -445,129 +502,30 @@ def exploit_all_loopholes(history, db=None, current_level=1, last_miss_direction
             brain = load_ai_brain_state(db, model_name="EVOSEQ_Registry")
             if brain and brain.synaptic_weights:
                 state = json.loads(brain.synaptic_weights)
-                if "evolver" in state:
-                    evolver.load_population(state["evolver"])
-                    fusion.load_state(state.get("fusion"))
-                    lz_predictor.load_state(state.get("lz"))
-                    champion_name = state.get("champion_id", champion_name)
-                    champion_fitness = state.get("fitness", 90.0)
-                    generation = brain.generation
-                    predictive_score = state.get("predictive_score", predictive_score)
-                    calibration_quality = state.get("calibration_quality", calibration_quality)
-                    stability_score = state.get("stability_score", stability_score)
-                    brier_score = state.get("brier_score", brier_score)
-                    log_loss_val = state.get("log_loss", log_loss_val)
-                    null_adv = state.get("null_advantage", null_adv)
-                    entropy_val = state.get("entropy", entropy_val)
-                    drift_level = state.get("drift_level", "LOW")
-                    drift_score = state.get("drift_score", 0.0)
-                    models_tested = state.get("models_tested", models_tested)
-                    active_challengers = state.get("active_challengers", active_challengers)
-                    retired_models = state.get("retired_models", retired_models)
-                    if drift_level in ["CRITICAL", "HIGH"]:
-                        jsd_alert = True
+                champion_name = state.get("champion_id", champion_name)
+                generation = brain.generation
+                predictive_score = state.get("predictive_score", predictive_score)
+                calibration_quality = state.get("calibration_quality", calibration_quality)
+                stability_score = state.get("stability_score", stability_score)
+                brier_score = state.get("brier_score", brier_score)
+                log_loss_val = state.get("log_loss", log_loss_val)
+                null_adv = state.get("null_advantage", null_adv)
+                drift_level = state.get("drift_level", "LOW")
+                drift_score = state.get("drift_score", 0.0)
+                models_tested = state.get("models_tested", models_tested)
+                active_challengers = state.get("active_challengers", active_challengers)
+                retired_models = state.get("retired_models", retired_models)
         except Exception as e:
             print("EVOSEQ Registry load note:", e)
-            
-    # 4. Extract Neural Features & Sub-model Predictions
-    window_size = 3
-    if len(history) >= window_size:
-        curr_feats = extract_advanced_features(history[-window_size:])
-        champion = next((g for g in evolver.genomes if g.genome_id == champion_name), evolver.genomes[0])
-        prob_big = champion.forward(curr_feats)
 
-    p_surv = 1.0 if survival_analysis["prediction"] == "Big" else 0.0
-    p_ngrm = 1.0 if ngram_analysis["prediction"] == "Big" else 0.0
-    p_mark = 1.0 if markov_analysis["prediction"] == "Big" else 0.0
-    p_wave = 1.0 if wave_analysis["prediction"] == "Big" else 0.0
-    p_lz = lz_predictor.predict(history)
-    
-    # 5. Execute MDL-PRNG Meta-Fusion on current step
-    p_big_fused = fusion.predict([p_surv, p_ngrm, prob_big, p_mark, p_wave, p_lz])
-    
-    # If latent regime is dominant, apply Bayesian regime pull
-    if regime_info.get("dominant_bias"):
-        regime_pull = 0.85 if regime_info["dominant_bias"] == "Big" else 0.15
-        p_big_fused = p_big_fused * 0.7 + regime_pull * 0.3
-
-    raw_winner = "Big" if p_big_fused >= 0.5 else "Small"
-    win_prob = p_big_fused if raw_winner == "Big" else (1.0 - p_big_fused)
-    kelly_f = kelly_fraction(win_prob, b=1.0)
-
-    # ==============================================================================
-    # 🛡️ 3-LEVEL MARTINGALE QUANTUM RECOVERY PIVOT & KELLY RISK CONTROLLER
-    # ==============================================================================
-    final_winner = raw_winner
-    
-    if jsd_alert:
-        active_loophole_name = f"⚠️ EVOSEQ Drift! · {champion_name}"
-    else:
-        active_loophole_name = f"🧬 Gen #{generation} · {champion_name} + LZ Fusion"
-        
-    loophole_insight = f"{regime_info['label']}. Fusion Win Edge: {round(win_prob*100, 1)}%. Null Adv: +{round(null_adv*100, 1)}%."
-    final_confidence = round(max(94.8, win_prob * 100), 1)
-
-    if current_level == 2:
-        if kelly_f <= 0.05:
-            active_loophole_name = f"⚠️ Level 2 Aborted (No Mathematical Edge)"
-            loophole_insight = f"Kelly Criterion detected negative edge ({round(win_prob*100, 1)}%). Aggressive recovery skipped to protect bankroll. Reverting to base strike."
-            final_confidence = 88.0
-        else:
-            last_actual_bs = to_big_small(history[-1])
-            if survival_analysis["confidence"] >= 52.0:
-                final_winner = survival_analysis["prediction"]
-            elif ngram_analysis.get("reason"):
-                final_winner = ngram_analysis["prediction"]
-            else:
-                final_winner = last_actual_bs
-                
-            active_loophole_name = f"🛡️ VIP Level 2 · 3X (Regime Pivot Recovery)"
-            loophole_insight = f"Level 1 miss recalibrated with {champion_name}. Direction pivoted to {final_winner.upper()} to guarantee winning recovery on Level 2."
-            final_confidence = 98.2
-
-    elif current_level >= 3:
-        if kelly_f <= 0.01:
-            active_loophole_name = f"⚠️ Level 3 Aborted (High Entropy Danger)"
-            loophole_insight = f"PRNG entered maximum entropy. Kelly Criterion aborted 9X strike. Playing defensive base strike."
-            final_confidence = 85.0
-        else:
-            last_pair = (to_big_small(history[-2]), to_big_small(history[-1]))
-            pair_counts = {"Big": 0, "Small": 0}
-            for i in range(len(history) - 3):
-                if (to_big_small(history[i]), to_big_small(history[i+1])) == last_pair:
-                    pair_counts[to_big_small(history[i+2])] += 1
-                    
-            if pair_counts["Big"] != pair_counts["Small"] and (pair_counts["Big"] + pair_counts["Small"]) >= 2:
-                final_winner = "Big" if pair_counts["Big"] > pair_counts["Small"] else "Small"
-            else:
-                final_winner = survival_analysis["prediction"]
-                
-            active_loophole_name = f"★ VIP Level 3 · 9X (Golden Guarantee Strike)"
-            loophole_insight = f"Level 3 Golden Lock engaged. Exact {last_pair} sequence locked on {final_winner.upper()} with 99.4% historical certainty."
-            final_confidence = 99.6
-
-    # Conditional Digit Frequency Optimizer from Cloud History
-    matching_digits = [int(x) for x in history if to_big_small(x) == final_winner]
-    if matching_digits:
-        valid_range = range(5, 10) if final_winner == "Big" else range(0, 5)
-        d_counts = {d: matching_digits.count(d) for d in valid_range}
-        sorted_digits = sorted(valid_range, key=lambda d: d_counts.get(d, 0), reverse=True)
-        target_digit = sorted_digits[0]
-        hedge_digit = sorted_digits[1] if len(sorted_digits) > 1 else (9 if final_winner == "Big" else 0)
-    else:
-        target_digit = 7 if final_winner == "Big" else 2
-        hedge_digit = 9 if final_winner == "Big" else 0
-
-    strike_quality = "HIGH_CONVICTION" if final_confidence >= 95.0 else "STRONG_STRIKE"
+    active_loophole_name = f"🧬 Gen #{generation} · {champion_name} Bayesian Markov"
+    loophole_insight = f"{regime_info['label']}. Calibrated Conviction: {final_confidence}%. Null Adv: +{round(null_adv*100, 1)}%."
     total_samples = len(history)
-
-    multi_h = generate_multi_horizon_probabilities(history, final_winner, target_digit)
 
     return {
         "prediction": final_winner,
         "confidence": final_confidence,
         "targetNum": target_digit,
-
         "hedgeNum": hedge_digit,
         "patternName": active_loophole_name,
         "strikeQuality": strike_quality,
@@ -598,6 +556,7 @@ def exploit_all_loopholes(history, db=None, current_level=1, last_miss_direction
         "familyWeights": multi_h["familyWeights"],
         "environmentVector": multi_h["environmentVector"]
     }
+
 
 
 from backend.database import SessionLocal, Outcome, Draw, PredictionLog, save_live_draws, save_prediction, save_prediction_audit
