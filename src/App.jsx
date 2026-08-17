@@ -273,6 +273,7 @@ function App() {
         nextDigit: activePrediction.targetNum || (isBig ? 7 : 2),
         nextSide: activePrediction.prediction
       },
+      stochasticPrediction: activePrediction.stochasticPrediction,
       expertThoughts: activePrediction.expertThoughts || `Multi-model consensus aligned. Loophole detection active on ${activePrediction.prediction.toUpperCase()}.`,
       pillars: [
         {
