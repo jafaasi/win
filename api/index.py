@@ -1,4 +1,5 @@
 from http.server import BaseHTTPRequestHandler
+import hashlib
 import json
 import math
 import random
@@ -424,18 +425,22 @@ def generate_multi_horizon_probabilities(history):
     # -------------------------------------------------------------------------
     # 3b. STOCHASTIC RANDOM SAMPLING (Side-by-Side Random Intelligence)
     # -------------------------------------------------------------------------
-    import random
+    # Keep this deterministic per input history to prevent the same signal from
+    # oscillating every refresh in the frontend UI.
+    history_key = "".join(str(int(x) % 10) for x in history)
+    seed = int.from_bytes(hashlib.sha256(history_key.encode("utf-8")).digest()[:8], "big")
+    rng = random.Random(seed)
     temperature = 0.8
     logits = [math.log(max(1e-12, p)) / temperature for p in h1]
     max_logit = max(logits)
     exp_logits = [math.exp(l - max_logit) for l in logits]
     sum_exp = sum(exp_logits) or 1.0
     sampled_probs = [e / sum_exp for e in exp_logits]
-    
+
     p_big_scaled = sum(sampled_probs[5:])
     p_small_scaled = sum(sampled_probs[:5])
 
-    if random.random() < p_big_scaled:
+    if rng.random() < p_big_scaled:
         stochastic_winner = "Big"
         stochastic_prob = p_big
         s_valid_range = list(range(5, 10))
@@ -447,11 +452,11 @@ def generate_multi_horizon_probabilities(history):
     s_valid_probs = [sampled_probs[d] for d in s_valid_range]
     s_sum_v = sum(s_valid_probs) or 1.0
     s_norm_v = [p / s_sum_v for p in s_valid_probs]
-    
-    stochastic_target = random.choices(s_valid_range, weights=s_norm_v, k=1)[0]
+
+    stochastic_target = rng.choices(s_valid_range, weights=s_norm_v, k=1)[0]
     s_rem_range = [d for d in s_valid_range if d != stochastic_target]
     s_rem_probs = [sampled_probs[d] for d in s_rem_range]
-    stochastic_hedge = random.choices(s_rem_range, weights=s_rem_probs, k=1)[0] if s_rem_range else stochastic_target
+    stochastic_hedge = rng.choices(s_rem_range, weights=s_rem_probs, k=1)[0] if s_rem_range else stochastic_target
     stochastic_conf = round(stochastic_prob * 100, 1)
 
     # -------------------------------------------------------------------------
