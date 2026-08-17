@@ -3,6 +3,7 @@ import json
 import math
 import random
 import os
+import time
 import urllib.request
 from datetime import datetime
 
@@ -624,7 +625,17 @@ from backend.database import SessionLocal, Outcome, Draw, PredictionLog, save_li
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
 
+_STATE_CACHE = {"ts": 0, "value": None}
+
+
 def compute_state(client_payload=None, init=False):
+    global _STATE_CACHE
+    now = time.time()
+    cache_window = 3.0
+
+    if not init and now - _STATE_CACHE["ts"] < cache_window and _STATE_CACHE["value"] is not None:
+        return _STATE_CACHE["value"]
+
     live_draws = []
     current_level = 1
     
@@ -834,7 +845,7 @@ def compute_state(client_payload=None, init=False):
     losses = len(round_logs) - wins
     win_rate = round((wins / len(round_logs) * 100), 1) if round_logs else 94.2
 
-    return {
+    result = {
         "history": history,
         "roundLogs": round_logs,
         "latestIssue": latest_issue,
@@ -873,6 +884,10 @@ def compute_state(client_payload=None, init=False):
             "isModelTrained": True
         }
     }
+
+    if not init:
+        _STATE_CACHE = {"ts": time.time(), "value": result}
+    return result
 
 class handler(BaseHTTPRequestHandler):
     def _send_cors(self):

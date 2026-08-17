@@ -1714,18 +1714,96 @@ body::after {
 }
 
 /* ============ RESPONSIVE ============ */
-@media (max-width: 480px) {
+@media (max-width: 768px) {
   .app-wrapper {
-    padding: 1rem 0.75rem 2rem;
+    max-width: 100%;
+    padding: 1rem 0.75rem 2.25rem;
+  }
+
+  .app-header {
+    padding-top: 1rem;
+  }
+
+  .header-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .auto-controls {
+    justify-content: center;
+  }
+
+  .live-issue-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.4rem;
+  }
+
+  .prediction-hero {
+    padding: 1.25rem 0.9rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .app-title {
+    font-size: 1.35rem;
+  }
+
+  .card {
+    padding: 0.9rem;
   }
 
   .prediction-label-text {
-    font-size: 3rem;
+    font-size: 2.5rem;
   }
 
-  .algo-grid {
-    grid-template-columns: 1fr 1fr;
+  .sniper-container {
+    flex-direction: column;
+  }
+
+  .vip-strike-badge {
+    font-size: 0.64rem;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .round-logs-list {
+    max-height: 260px;
+  }
+}
+
+@media (max-width: 420px) {
+  .app-wrapper {
+    padding: 0.75rem 0.6rem 1.75rem;
+  }
+
+  .app-logo {
     gap: 0.4rem;
+  }
+
+  .logo-icon {
+    width: 30px;
+    height: 30px;
+    font-size: 0.95rem;
+  }
+
+  .app-badge,
+  .draw-now-btn,
+  .auto-toggle-btn {
+    font-size: 0.65rem;
+    padding: 0.3rem 0.55rem;
+  }
+
+  .live-issue-bar {
+    padding: 0.45rem 0.55rem;
+  }
+
+  .issue-tag,
+  .sync-time {
+    font-size: 0.62rem;
+  }
+
+  .prediction-label-text {
+    font-size: 2.1rem;
   }
 }
 

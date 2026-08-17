@@ -54,6 +54,7 @@ function App() {
   
   const [latestIssue, setLatestIssue] = useState(null);
   const [activePrediction, setActivePrediction] = useState(null);
+  const [isPolling, setIsPolling] = useState(true);
   
   const [syncStatus, setSyncStatus] = useState('connecting');
   const [lastSyncTime, setLastSyncTime] = useState(null);
@@ -66,7 +67,7 @@ function App() {
   const isSyncing = useRef(false);
 
   const fetchBackendState = async () => {
-    if (isSyncing.current) return;
+    if (isSyncing.current || !isPolling) return;
     isSyncing.current = true;
     try {
       // 1. Fetch live draws directly from same-origin proxy
@@ -87,6 +88,14 @@ function App() {
         console.warn("WinGo draw fetch note:", e);
       }
 
+      const historyFromDraws = clientDraws.slice().reverse().map(d => Number(d.number));
+      if (historyFromDraws.length > 0) {
+        setHistory(prev => {
+          if (prev.length === historyFromDraws.length && prev.every((n, idx) => n === historyFromDraws[idx])) return prev;
+          return historyFromDraws;
+        });
+      }
+
       // 2. Transmit to Python Deep Learning Engine
       const isInit = lastSyncTime === null;
       const url = `${BACKEND_URL}${isInit ? '?init=true' : ''}`;
@@ -102,7 +111,6 @@ function App() {
       
       const data = response.ok ? await response.json() : null;
       
-      // 3. Process completed draws and verify against exact pending predictions
       if (data) {
         if (data.latestIssue) {
           setLatestIssue(String(data.latestIssue));
@@ -112,16 +120,13 @@ function App() {
 
         if (data.history && data.history.length > 0) {
           setHistory(data.history);
-        } else if (clientDraws.length > 0) {
-          setHistory(clientDraws.slice().reverse().map(d => Number(d.number)));
+        } else if (historyFromDraws.length > 0) {
+          setHistory(historyFromDraws);
         }
 
-        // 4. Strict Win/Loss Verification: Sync directly with cloud database
         if (data.roundLogs && data.roundLogs.length > 0) {
           setRoundLogs(() => {
             const pendingMap = pendingPredictions.current;
-
-            // Map over canonical cloud logs and overlay any local on-screen predictions
             const syncedLogs = data.roundLogs.map(log => {
               const pending = pendingMap[log.issue] || 
                 Object.entries(pendingMap).find(([k]) => `#${String(k).slice(-5)}` === log.issue)?.[1];
@@ -140,7 +145,6 @@ function App() {
               return log;
             });
 
-            // Derive active Martingale level directly from the latest verified outcome (Strict 3-Level Max)
             if (syncedLogs.length > 0) {
               const latestLog = syncedLogs[0];
               const prevLvl = Number(latestLog.level) || 1;
@@ -153,13 +157,11 @@ function App() {
         }
       }
 
-      // 5. Update Active Prediction - Rock-Solid Locking per Issue
       if (data?.activePrediction) {
         const nextIss = String(data.activePrediction.nextIssue);
         const tagIss = `#${nextIss.slice(-5)}`;
         
         setActivePrediction(prev => {
-          // Lock prediction steady for the current active issue to eliminate any fluctuation
           if (!prev || String(prev.nextIssue) !== nextIss) {
             return data.activePrediction;
           }
@@ -178,6 +180,17 @@ function App() {
         };
         pendingPredictions.current[nextIss] = predInfo;
         pendingPredictions.current[tagIss] = predInfo;
+      } else if (historyFromDraws.length >= 2) {
+        const localPrediction = predictNextOutcome(historyFromDraws, currentLevel);
+        setActivePrediction({
+          prediction: localPrediction.prediction,
+          confidence: localPrediction.confidence,
+          targetNum: localPrediction.predictedNumber,
+          hedgeNum: localPrediction.predictedNumber,
+          patternName: 'Local Predictor Fallback',
+          nextIssue: latestIssue ? String(Number(latestIssue) + 1) : 'pending',
+          strikeQuality: 'LOCAL_FALLBACK'
+        });
       }
 
       setSyncStatus('live');
@@ -189,12 +202,12 @@ function App() {
     }
   };
 
-  // 1-second continuous real-time background sync
   useEffect(() => {
+    if (!isPolling) return undefined;
     fetchBackendState();
-    const interval = setInterval(fetchBackendState, 1000);
+    const interval = setInterval(fetchBackendState, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [currentLevel]);
+  }, [currentLevel, isPolling, lastSyncTime]);
 
   // Bead Plate Generator
   const beadPlate = history.map(n => {
