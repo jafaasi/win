@@ -28,10 +28,10 @@ class DeepPyTorchWrapper(BaseModel):
         self.model = pytorch_model
 
     def partial_fit(self, sequence: np.ndarray):
-        # Only fit the last 2000 to keep it fast inside the 30s loop
-        train_depth = min(2000, len(sequence))
+        # Fit the most recent 500 outcomes for fast online learning within the 30s cycle
+        train_depth = min(500, len(sequence))
         train_history = sequence[-train_depth:].tolist()
-        self.model.fit(train_history, epochs=2)
+        self.model.fit(train_history, epochs=1)
         
     def predict_proba(self, recent_values: np.ndarray) -> np.ndarray:
         eval_ctx = recent_values[-64:].tolist() if len(recent_values) >= 64 else recent_values.tolist()
