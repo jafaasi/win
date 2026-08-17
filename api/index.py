@@ -397,18 +397,42 @@ def generate_multi_horizon_probabilities(history):
     h3 = [round(p / s3, 4) for p in h3]
     h3[-1] = round(1.0 - sum(h3[:-1]), 4)
 
-    # 7. Unbiased Outcome Determination
+    # 7. Evolved Probabilistic Analysis & Bayesian Stochastic Sampling
     p_big = sum(h1[5:])
     p_small = sum(h1[:5])
 
-    final_winner = "Big" if p_big >= p_small else "Small"
-    win_prob = max(p_big, p_small)
-    calibrated_conf = round(win_prob * 100, 1)
+    # Temperature-scaled stochastic sampling (T=0.75) for dynamic probabilistic adaptability
+    temperature = 0.75
+    logits = [math.log(max(1e-12, p)) / temperature for p in h1]
+    max_logit = max(logits)
+    exp_logits = [math.exp(l - max_logit) for l in logits]
+    sum_exp = sum(exp_logits) or 1.0
+    sampled_probs = [e / sum_exp for e in exp_logits]
+    
+    p_big_scaled = sum(sampled_probs[5:])
+    p_small_scaled = sum(sampled_probs[:5])
 
-    valid_range = range(5, 10) if final_winner == "Big" else range(0, 5)
-    sorted_digits = sorted(valid_range, key=lambda k: h1[k], reverse=True)
-    target_digit = sorted_digits[0]
-    hedge_digit = sorted_digits[1] if len(sorted_digits) > 1 else (9 if final_winner == "Big" else 0)
+    # Evolved stochastic draw weighted by historical posterior likelihood
+    if random.random() < p_big_scaled:
+        final_winner = "Big"
+        win_prob = p_big
+        valid_range = list(range(5, 10))
+    else:
+        final_winner = "Small"
+        win_prob = p_small
+        valid_range = list(range(0, 5))
+
+    valid_probs = [sampled_probs[d] for d in valid_range]
+    sum_v = sum(valid_probs) or 1.0
+    norm_v = [p / sum_v for p in valid_probs]
+    
+    # Sample target and hedge digits from conditioned probability distribution
+    target_digit = random.choices(valid_range, weights=norm_v, k=1)[0]
+    rem_range = [d for d in valid_range if d != target_digit]
+    rem_probs = [sampled_probs[d] for d in rem_range]
+    hedge_digit = random.choices(rem_range, weights=rem_probs, k=1)[0] if rem_range else target_digit
+
+    calibrated_conf = round(win_prob * 100, 1)
 
     # 8. Entropy & Model Disagreement
     entropy_bits = -sum(p * math.log2(max(1e-12, p)) for p in h1)
@@ -447,6 +471,7 @@ def generate_multi_horizon_probabilities(history):
             disagreement_bits
         ]
     }
+
 
 # ==============================================================================
 # 🎯 3-LEVEL QUANTUM ADAPTIVE INVERSION ENGINE (v40.0)
