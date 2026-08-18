@@ -127,14 +127,25 @@ class S4DSequenceModel(nn.Module, SequenceModel):
         self.batch_size = batch_size
         self.input_size = input_size
         
-        self.input_projection = nn.Linear(input_size, dim)
+        # Set device - use MPS for Apple Silicon, CUDA for NVIDIA, CPU as fallback
+        if torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+            print(f"[S4DSequenceModel] Using MPS (Apple Silicon GPU)")
+        elif torch.cuda.is_available():
+            self.device = torch.device("cuda")
+            print(f"[S4DSequenceModel] Using CUDA (NVIDIA GPU)")
+        else:
+            self.device = torch.device("cpu")
+            print(f"[S4DSequenceModel] Using CPU")
+        
+        self.input_projection = nn.Linear(input_size, dim).to(self.device)
         self.layers_module = nn.ModuleList([
-            S4DLayer(d_model=dim, state_size=state_size)
+            S4DLayer(d_model=dim, state_size=state_size).to(self.device)
             for _ in range(num_layers)
         ])
-        self.norm = nn.LayerNorm(dim)
+        self.norm = nn.LayerNorm(dim).to(self.device)
         self.heads = nn.ModuleList([
-            nn.Linear(dim, self.classes)
+            nn.Linear(dim, self.classes).to(self.device)
             for _ in range(horizons)
         ])
         
@@ -145,6 +156,7 @@ class S4DSequenceModel(nn.Module, SequenceModel):
         )
 
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
+        x = x.to(self.device)
         x = self.input_projection(x)
         for layer in self.layers_module:
             residual = x

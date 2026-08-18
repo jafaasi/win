@@ -73,7 +73,18 @@ class S4SequenceModel(SequenceModel):
         self.lr = lr
         self.temperature = temperature
         
-        self.net = S4Net(input_size, hidden_size, layers, output_size=10)
+        # Set device - use MPS for Apple Silicon, CUDA for NVIDIA, CPU as fallback
+        if torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+            print(f"[S4] Using MPS (Apple Silicon GPU)")
+        elif torch.cuda.is_available():
+            self.device = torch.device("cuda")
+            print(f"[S4] Using CUDA (NVIDIA GPU)")
+        else:
+            self.device = torch.device("cpu")
+            print(f"[S4] Using CPU")
+        
+        self.net = S4Net(input_size, hidden_size, layers, output_size=10).to(self.device)
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=lr, weight_decay=1e-4)
         self.criterion = nn.CrossEntropyLoss()
         
@@ -93,11 +104,11 @@ class S4SequenceModel(SequenceModel):
         arr = np.asarray(X)
         if arr.ndim == 1:
             oh = np.array([one_hot(int(d), self.input_size) for d in arr], dtype=np.float32)
-            return torch.from_numpy(oh).unsqueeze(0)
+            return torch.from_numpy(oh).unsqueeze(0).to(self.device)
         elif arr.ndim == 2:
-            return torch.from_numpy(arr.astype(np.float32)).unsqueeze(0)
+            return torch.from_numpy(arr.astype(np.float32)).unsqueeze(0).to(self.device)
         else:
-            return torch.from_numpy(arr.astype(np.float32))
+            return torch.from_numpy(arr.astype(np.float32)).to(self.device)
 
     def fit(self, X: Union[np.ndarray, list], y: Optional[Union[np.ndarray, list]] = None, epochs: int = 8) -> "S4SequenceModel":
         self.net.train()
@@ -110,6 +121,8 @@ class S4SequenceModel(SequenceModel):
         
         for _ in range(epochs):
             for batch_X, batch_y in loader:
+                batch_X = batch_X.to(self.device)
+                batch_y = batch_y.to(self.device)
                 self.optimizer.zero_grad()
                 logits = self.net(batch_X)
                 loss = self.criterion(logits, batch_y)
@@ -125,8 +138,8 @@ class S4SequenceModel(SequenceModel):
             return self
         ctx = X_seq[-4:-1]
         target = int(X_seq[-1])
-        t_in = torch.tensor(np.array([[one_hot(int(d), self.input_size) for d in ctx]]), dtype=torch.float32)
-        t_out = torch.tensor([target], dtype=torch.long)
+        t_in = torch.tensor(np.array([[one_hot(int(d), self.input_size) for d in ctx]]), dtype=torch.float32).to(self.device)
+        t_out = torch.tensor([target], dtype=torch.long).to(self.device)
         
         self.optimizer.zero_grad()
         logits = self.net(t_in)
@@ -249,7 +262,18 @@ class MambaSequenceModel(SequenceModel):
         self.lr = lr
         self.temperature = temperature
         
-        self.net = MambaNet(input_size, hidden_size, layers, output_size=10)
+        # Set device - use MPS for Apple Silicon, CUDA for NVIDIA, CPU as fallback
+        if torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+            print(f"[Mamba] Using MPS (Apple Silicon GPU)")
+        elif torch.cuda.is_available():
+            self.device = torch.device("cuda")
+            print(f"[Mamba] Using CUDA (NVIDIA GPU)")
+        else:
+            self.device = torch.device("cpu")
+            print(f"[Mamba] Using CPU")
+        
+        self.net = MambaNet(input_size, hidden_size, layers, output_size=10).to(self.device)
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=lr, weight_decay=1e-4)
         self.criterion = nn.CrossEntropyLoss()
         
@@ -269,11 +293,11 @@ class MambaSequenceModel(SequenceModel):
         arr = np.asarray(X)
         if arr.ndim == 1:
             oh = np.array([one_hot(int(d), self.input_size) for d in arr], dtype=np.float32)
-            return torch.from_numpy(oh).unsqueeze(0)
+            return torch.from_numpy(oh).unsqueeze(0).to(self.device)
         elif arr.ndim == 2:
-            return torch.from_numpy(arr.astype(np.float32)).unsqueeze(0)
+            return torch.from_numpy(arr.astype(np.float32)).unsqueeze(0).to(self.device)
         else:
-            return torch.from_numpy(arr.astype(np.float32))
+            return torch.from_numpy(arr.astype(np.float32)).to(self.device)
 
     def fit(self, X: Union[np.ndarray, list], y: Optional[Union[np.ndarray, list]] = None, epochs: int = 8) -> "MambaSequenceModel":
         self.net.train()
@@ -286,6 +310,8 @@ class MambaSequenceModel(SequenceModel):
         
         for _ in range(epochs):
             for batch_X, batch_y in loader:
+                batch_X = batch_X.to(self.device)
+                batch_y = batch_y.to(self.device)
                 self.optimizer.zero_grad()
                 logits = self.net(batch_X)
                 loss = self.criterion(logits, batch_y)
@@ -301,8 +327,8 @@ class MambaSequenceModel(SequenceModel):
             return self
         ctx = X_seq[-4:-1]
         target = int(X_seq[-1])
-        t_in = torch.tensor(np.array([[one_hot(int(d), self.input_size) for d in ctx]]), dtype=torch.float32)
-        t_out = torch.tensor([target], dtype=torch.long)
+        t_in = torch.tensor(np.array([[one_hot(int(d), self.input_size) for d in ctx]]), dtype=torch.float32).to(self.device)
+        t_out = torch.tensor([target], dtype=torch.long).to(self.device)
         
         self.optimizer.zero_grad()
         logits = self.net(t_in)
