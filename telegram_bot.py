@@ -13,6 +13,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 # Configuration
 BOT_TOKEN = "8796895729:AAHC1UiRlAdn2Ha87_mG3RDLwaUZG5Qcr40"
 API_URL = "http://localhost:8000/api/state"
+WINGO_API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
 CHECK_INTERVAL = 30  # Check for new predictions every 30 seconds
 
 # Store for subscribed users and last prediction
@@ -43,16 +44,58 @@ def get_prediction():
         return None
 
 
-def check_win_loss(previous_prediction, current_data):
-    """Check if previous prediction was correct"""
-    if not previous_prediction or not current_data:
+def get_wingo_results():
+    """Fetch recent results from WinGo API"""
+    try:
+        with httpx.Client(timeout=10) as client:
+            response = client.get(WINGO_API_URL)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"WinGo API returned status {response.status_code}")
+                return None
+    except Exception as e:
+        logger.error(f"Error fetching WinGo results: {e}")
+        return None
+
+
+def check_win_loss(previous_prediction):
+    """Check if previous prediction was correct by fetching actual results"""
+    if not previous_prediction:
         return None
     
     try:
-        # For win/loss tracking, we need access to actual results
-        # This requires the API to provide historical outcomes
-        # Since the current API doesn't provide this, we'll skip for now
-        # TODO: Implement when API results endpoint is available
+        # Get the issue we predicted for
+        predicted_issue = previous_prediction.get('nextIssue', 'N/A')
+        predicted_result = previous_prediction.get('prediction', '').lower()
+        
+        # Fetch actual results from WinGo API
+        wingo_data = get_wingo_results()
+        if not wingo_data:
+            return None
+        
+        # Find the result for our predicted issue
+        # WinGo API structure: data.list contains the results
+        if 'data' in wingo_data and 'list' in wingo_data['data']:
+            for result in wingo_data['data']['list']:
+                issue_number = result.get('issueNumber', '')
+                if issue_number == predicted_issue:
+                    # Get the actual outcome
+                    number = result.get('number', 0)
+                    actual_result = 'big' if int(number) >= 5 else 'small'
+                    
+                    # Check if prediction was correct
+                    won = (predicted_result == actual_result)
+                    
+                    return {
+                        'won': won,
+                        'issue': predicted_issue,
+                        'predicted': predicted_result,
+                        'actual': actual_result,
+                        'number': number
+                    }
+        
+        logger.warning(f"Could not find result for issue {predicted_issue}")
         return None
             
     except Exception as e:
@@ -80,7 +123,10 @@ def format_prediction_message(data, previous_result=None):
         if previous_result:
             result_emoji = "✅" if previous_result['won'] else "❌"
             result_text = "WON" if previous_result['won'] else "LOST"
-            result_info = f"\n{result_emoji} <b>Previous Result</b>: {result_text} (Issue: {previous_result['issue']})"
+            predicted = previous_result.get('predicted', 'N/A').upper()
+            actual = previous_result.get('actual', 'N/A').upper()
+            number = previous_result.get('number', 'N/A')
+            result_info = f"\n{result_emoji} <b>Previous Result</b>: {result_text}\n📊 <b>Issue</b>: {previous_result['issue']}\n🎯 <b>Predicted</b>: {predicted}\n🎲 <b>Actual</b>: {actual} (Number: {number})"
         
         message = f"""
 🎯 <b>WinGo Prediction</b>
@@ -240,18 +286,21 @@ async def check_and_send_predictions(context: ContextTypes.DEFAULT_TYPE):
         current_issue = prediction_data.get('currentIssue')
         next_issue = prediction_data.get('nextIssue')
         
-        # Check if this is a new prediction (based on next issue)
-        # We want to send prediction for the upcoming issue, not current
-        if next_issue and next_issue != last_prediction_issue:
-            logger.info(f"New prediction detected for issue: {next_issue}")
-            last_prediction_issue = next_issue
+        # Check if this is a new prediction (based on current issue changing)
+        # When current_issue changes, it means a new round has started
+        if current_issue and current_issue != last_prediction_issue:
+            logger.info(f"New round detected: {current_issue}")
+            last_prediction_issue = current_issue
             
             # Check win/loss for previous prediction
             previous_result = None
             if last_prediction:
-                previous_result = check_win_loss(last_prediction, prediction_data)
+                previous_result = check_win_loss(last_prediction)
+                if previous_result:
+                    result_text = "WON" if previous_result['won'] else "LOST"
+                    logger.info(f"Previous prediction {result_text}: {previous_result['issue']}")
             
-            # Send to all subscribed users
+            # Send prediction for the next issue
             message = format_prediction_message(prediction_data, previous_result)
             
             for user_id in subscribed_users.copy():  # Use copy to avoid modification during iteration
