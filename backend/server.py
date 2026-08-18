@@ -71,7 +71,12 @@ import subprocess
 
 @app.on_event("startup")
 async def startup_event():
-    # 1. Spawn keep-alive self-pinger
+    # 1. Spawn lightweight cloud scraper
+    print("☁️ Spawning Lightweight Cloud Scraper...")
+    from backend.scraper import run_scraper_daemon
+    asyncio.create_task(run_scraper_daemon(max_duration_seconds=999999999))
+
+    # 2. Spawn keep-alive self-pinger
     print("💓 Spawning Auto Keep-Alive Self-Pinger...")
     asyncio.create_task(keep_alive_self_pinger())
 
