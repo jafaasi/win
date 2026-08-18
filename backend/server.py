@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import asyncio
 import os
 import sys
 import json
@@ -24,10 +23,9 @@ sys.stdout.reconfigure(line_buffering=True)
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.scraper import run_scraper_daemon
-from backend.database import SessionLocal, AIBrainState
+from backend.database import SessionLocal, AIBrainState, save_live_draws
 
-app = FastAPI(title="WinGo Prediction API - Render Backend")
+app = FastAPI(title="WinGo Database Gateway - Free Tier Optimized")
 
 # Allow all origins for Vercel + Localhost
 app.add_middleware(
@@ -38,21 +36,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.on_event("startup")
-async def startup_event():
-    # Spawn lightweight cloud scraper daemon only
-    # ALL prediction logic runs locally on your Mac
-    print("☁️ Spawning Render Cloud Scraper (Historical Data Collection)...")
-    asyncio.create_task(run_scraper_daemon(max_duration_seconds=999999999))
-
 @app.get("/")
 @app.get("/healthz")
 def health_check():
     return {
         "status": "online",
-        "service": "WinGo Render Backend",
-        "role": "Cloud Scraper + API Gateway",
-        "note": "Predictions from local_ai_engine.py running on your Mac"
+        "service": "WinGo Database Gateway",
+        "role": "Database Storage Only (Free Tier)",
+        "note": "Lightweight API for database operations. ML runs locally."
     }
 
 @app.get("/api/health")
@@ -62,8 +53,8 @@ def api_health():
 @app.get("/api/state")
 def get_api_state():
     """
-    Return the latest prediction from the LOCAL ENGINE stored in Supabase.
-    Render acts ONLY as a gateway to read this data.
+    Return the latest prediction from the LOCAL ENGINE stored in database.
+    This is a lightweight read operation optimized for free tier.
     """
     db = SessionLocal()
     try:
@@ -90,8 +81,28 @@ def post_api_state(payload: dict | None = None):
     """Accept but ignore client payloads - local engine is the source of truth."""
     return get_api_state()
 
+@app.post("/api/outcomes")
+def save_outcomes(outcomes: list):
+    """
+    Lightweight endpoint to save outcomes to database.
+    Called by local scraper to store data in cloud database.
+    """
+    db = SessionLocal()
+    try:
+        new_draws = save_live_draws(db, outcomes)
+        return {
+            "status": "success",
+            "new_draws_saved": new_draws,
+            "total_outcomes": len(outcomes)
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
-    print(f"🚀 Starting Render Backend on 0.0.0.0:{port}", flush=True)
+    print(f"🚀 Starting Lightweight Database Gateway on 0.0.0.0:{port}", flush=True)
+    print("💾 Free Tier Optimized: Database storage only", flush=True)
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

@@ -28,16 +28,18 @@ async def fetch_wingo_draws():
 
 async def run_scraper_daemon(max_duration_seconds=18000):
     """
-    ☁️ RENDER CLOUD SCRAPER: Lightweight historical data collector
+    🏠 LOCAL SCRAPER: Runs on your local machine to collect and store outcomes
     - Polls WinGo API every 1.5 seconds
-    - Stores outcomes in Supabase (past draws only)
+    - Stores outcomes in Supabase/PostgreSQL database
     - Does NOT run ML or make predictions
-    - Leaves all intelligence to the local engine
+    - Leaves all intelligence to the local AI engine
+    - Optimized for free tier: runs locally, stores to cloud database
     """
     start_time = time.time()
-    print(f"☁️ Starting Render Cloud Scraper (Historical Data Collector)")
+    print(f"🏠 Starting LOCAL Scraper (Historical Data Collection)")
     print(f"📊 Session limit: {max_duration_seconds // 3600} hours")
-    print(f"⚠️  NOTE: Prediction engine runs on LOCAL MACHINE via local_ai_engine.py")
+    print(f"⚠️  NOTE: Prediction engine runs separately via local_ai_engine.py")
+    print(f"💾 Stores outcomes to cloud database (Supabase/PostgreSQL)")
     
     last_processed_issue = None
     draws_collected = 0
@@ -54,9 +56,9 @@ async def run_scraper_daemon(max_duration_seconds=18000):
                     
                     db = SessionLocal()
                     try:
-                        # 1. ONLY sync draws to Supabase - no prediction logic
+                        # 1. ONLY sync draws to database - no prediction logic
                         new_draws = save_live_draws(db, draws)
-                        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] ☁️ Outcome #{latest_issue}: {draws[0]['number']} | {draws_collected} collected | Supabase sync complete")
+                        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] 🏠 Outcome #{latest_issue}: {draws[0]['number']} | {draws_collected} collected | Database sync complete")
                     finally:
                         db.close()
         except Exception as e:
@@ -74,7 +76,7 @@ async def lifespan(app: FastAPI):
     yield
     task.cancel()
 
-app = FastAPI(title="WinGo Cloud Scraper (Historical Data Only)")
+app = FastAPI(title="WinGo Local Scraper (Historical Data Only)")
 
 # Allow all origins for Vercel + Localhost
 from fastapi.middleware.cors import CORSMiddleware
@@ -88,8 +90,8 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    # Spawn lightweight cloud scraper daemon only
-    print("☁️ Spawning Render Cloud Scraper...")
+    # Spawn local scraper daemon
+    print("🏠 Spawning Local Scraper...")
     from backend.scraper import run_scraper_daemon
     asyncio.create_task(run_scraper_daemon(max_duration_seconds=999999999))
 
@@ -98,9 +100,9 @@ async def startup_event():
 def health_check():
     return {
         "status": "online",
-        "service": "WinGo Cloud Scraper",
+        "service": "WinGo Local Scraper",
         "role": "Historical Data Collection Only",
-        "note": "Predictions generated on local machine via local_ai_engine.py"
+        "note": "Stores outcomes to cloud database. Predictions via local_ai_engine.py"
     }
 
 @app.get("/api/health")
@@ -113,6 +115,7 @@ if __name__ == "__main__":
         asyncio.run(run_scraper_daemon(max_duration_seconds=15))
     else:
         port = int(os.environ.get("PORT", 10000))
-        print(f"🚀 Starting Render Cloud Scraper on 0.0.0.0:{port}...", flush=True)
+        print(f"🚀 Starting Local Scraper on 0.0.0.0:{port}...", flush=True)
+        print("💾 Free Tier Optimized: Stores to cloud database, runs locally", flush=True)
         uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
 

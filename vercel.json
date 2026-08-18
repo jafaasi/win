@@ -8,20 +8,8 @@
       "destination": "https://win-vlmx.onrender.com/api/state"
     },
     {
-      "source": "/api/models",
-      "destination": "https://win-vlmx.onrender.com/api/models"
-    },
-    {
-      "source": "/api/ensemble",
-      "destination": "https://win-vlmx.onrender.com/api/ensemble"
-    },
-    {
-      "source": "/api/environment",
-      "destination": "https://win-vlmx.onrender.com/api/environment"
-    },
-    {
-      "source": "/api/evolution/genealogy",
-      "destination": "https://win-vlmx.onrender.com/api/evolution/genealogy"
+      "source": "/api/outcomes",
+      "destination": "https://win-vlmx.onrender.com/api/outcomes"
     },
     {
       "source": "/api/(.*)",
