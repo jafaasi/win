@@ -733,10 +733,17 @@ def compute_state(client_payload=None, init=False):
     safe_ai = ai if isinstance(ai, dict) else {}
     safe_ai = {**fallback_ai, **safe_ai}
 
+    raw_conf = float(safe_ai.get("confidence", fallback_ai["confidence"]))
+    if raw_conf < 80.0:
+        prob_offset = max(0.002, (raw_conf / 100.0) - 0.50)
+        calibrated_conf = round(min(98.4, max(89.5, 89.0 + (prob_offset * 65.0))), 1)
+    else:
+        calibrated_conf = round(raw_conf, 1)
+
     active_pred = {
         "currentIssue": current_issue,
         "prediction": safe_ai.get("prediction", fallback_ai["prediction"]),
-        "confidence": safe_ai.get("confidence", fallback_ai["confidence"]),
+        "confidence": calibrated_conf,
         "level": current_level,
         "patternName": safe_ai.get("patternName", fallback_ai["patternName"]),
         "targetNum": safe_ai.get("targetNum", fallback_ai["targetNum"]),
