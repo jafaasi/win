@@ -69,11 +69,7 @@ async def keep_alive_self_pinger():
 
 @app.on_event("startup")
 async def startup_event():
-    # 1. Spawn continuous 24/7 scraper daemon
-    print("🚀 Starting 24/7 Autonomous AI Worker Background Task...")
-    asyncio.create_task(run_scraper_daemon(max_duration_seconds=999999999))
-    
-    # 2. Spawn keep-alive self-pinger
+    # 1. Spawn keep-alive self-pinger
     print("💓 Spawning Auto Keep-Alive Self-Pinger...")
     asyncio.create_task(keep_alive_self_pinger())
 
