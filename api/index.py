@@ -787,30 +787,62 @@ def compute_state(client_payload=None, init=False):
         "generation": safe_ai.get("generation", fallback_ai.get("generation", 1)),
         "totalSamplesTrained": safe_ai.get("totalSamplesTrained", fallback_ai.get("totalSamplesTrained", len(history))),
         "championGenome": safe_ai.get("championGenome", fallback_ai.get("championGenome", "Transformer-Mamba-Ensemble")),
-        "latentRegime": safe_ai.get("latentRegime", fallback_ai.get("latentRegime", "🔬 Calibrating Baseline")),
-        "regimeProbabilities": safe_ai.get("regimeProbabilities", fallback_ai.get("regimeProbabilities", {})),
-        "predictiveScore": safe_ai.get("predictiveScore", fallback_ai.get("predictiveScore", 0.54)),
-        "calibrationQuality": safe_ai.get("calibrationQuality", fallback_ai.get("calibrationQuality", 0.96)),
-        "stabilityScore": safe_ai.get("stabilityScore", fallback_ai.get("stabilityScore", 0.88)),
-        "brierScore": safe_ai.get("brierScore", fallback_ai.get("brierScore", 0.20)),
-        "logLoss": safe_ai.get("logLoss", fallback_ai.get("logLoss", 0.65)),
-        "nullAdvantage": safe_ai.get("nullAdvantage", fallback_ai.get("nullAdvantage", 0.04)),
-        "entropy": safe_ai.get("entropy", fallback_ai.get("entropy", 3.22)),
-        "driftLevel": safe_ai.get("driftLevel", fallback_ai.get("driftLevel", "LOW")),
-        "driftScore": safe_ai.get("driftScore", fallback_ai.get("driftScore", 0.02)),
-        "modelsTested": safe_ai.get("modelsTested", fallback_ai.get("modelsTested", 128)),
-        "activeChallengers": safe_ai.get("activeChallengers", fallback_ai.get("activeChallengers", 5)),
-        "retiredModels": safe_ai.get("retiredModels", fallback_ai.get("retiredModels", 122)),
-        "h1": safe_ai.get("h1", fallback_ai.get("h1", [0.1] * 10)),
-        "h2": safe_ai.get("h2", fallback_ai.get("h2", [0.1] * 10)),
-        "h3": safe_ai.get("h3", fallback_ai.get("h3", [0.1] * 10)),
-        "stochasticPrediction": safe_ai.get("stochasticPrediction", fallback_ai.get("stochasticPrediction")),
-        "aleatoricEntropy": safe_ai.get("aleatoricEntropy", fallback_ai.get("aleatoricEntropy", 3.22)),
-        "modelDisagreement": safe_ai.get("modelDisagreement", fallback_ai.get("modelDisagreement", 0.045)),
-        "familyWeights": safe_ai.get("familyWeights", fallback_ai.get("familyWeights", {"statistical": 0.35, "recurrent": 0.35, "neural": 0.30})),
-        "environmentVector": safe_ai.get("environmentVector", fallback_ai.get("environmentVector", [3.22, 0.08, 0.03, 0.02, 0.12, 0.34, 0.045]))
+        # Include enhanced metrics from local engine
+        "h1": safe_ai.get("h1"),
+        "h2": safe_ai.get("h2"),
+        "h3": safe_ai.get("h3"),
+        "predictiveScore": safe_ai.get("predictiveScore"),
+        "calibrationQuality": safe_ai.get("calibrationQuality"),
+        "stabilityScore": safe_ai.get("stabilityScore"),
+        "brierScore": safe_ai.get("brierScore"),
+        "logLoss": safe_ai.get("logLoss"),
+        "nullAdvantage": safe_ai.get("nullAdvantage"),
+        "entropy": safe_ai.get("entropy"),
+        "driftLevel": safe_ai.get("driftLevel"),
+        "driftScore": safe_ai.get("driftScore"),
+        "modelsTested": safe_ai.get("modelsTested"),
+        "activeChallengers": safe_ai.get("activeChallengers"),
+        "retiredModels": safe_ai.get("retiredModels"),
+        "regimeProbabilities": safe_ai.get("regimeProbabilities"),
+        "aleatoricEntropy": safe_ai.get("aleatoricEntropy"),
+        "modelDisagreement": safe_ai.get("modelDisagreement"),
+        "familyWeights": safe_ai.get("familyWeights"),
+        "stochasticPrediction": safe_ai.get("stochasticPrediction"),
+        "latentRegime": safe_ai.get("latentRegime"),
+        "adaptive_tuning": safe_ai.get("adaptive_tuning")
     }
 
+    # Add fallback values for missing metrics
+    for key in ["h1", "h2", "h3", "predictiveScore", "calibrationQuality", "stabilityScore", 
+                 "brierScore", "logLoss", "nullAdvantage", "entropy", "driftLevel", "driftScore",
+                 "modelsTested", "activeChallengers", "retiredModels", "regimeProbabilities",
+                 "aleatoricEntropy", "modelDisagreement", "familyWeights", "stochasticPrediction",
+                 "latentRegime", "adaptive_tuning"]:
+        if active_pred.get(key) is None:
+            if key in ["h1", "h2", "h3"]:
+                active_pred[key] = [0.1] * 10
+            elif key in ["predictiveScore", "calibrationQuality", "stabilityScore"]:
+                active_pred[key] = 0.5
+            elif key in ["brierScore", "logLoss", "driftScore", "modelDisagreement"]:
+                active_pred[key] = 0.2
+            elif key == "entropy":
+                active_pred[key] = 3.22
+            elif key == "driftLevel":
+                active_pred[key] = "LOW"
+            elif key in ["modelsTested", "activeChallengers"]:
+                active_pred[key] = 8
+            elif key == "retiredModels":
+                active_pred[key] = 0
+            elif key == "regimeProbabilities":
+                active_pred[key] = {"momentum": 0.35, "alternation": 0.25, "harmonic": 0.2, "equilibrium": 0.2}
+            elif key == "aleatoricEntropy":
+                active_pred[key] = 3.22
+            elif key == "familyWeights":
+                active_pred[key] = {"statistical": 0.2, "recurrent": 0.3, "neural": 0.5}
+            elif key == "latentRegime":
+                active_pred[key] = "🔬 Calibrating Baseline"
+            elif key == "adaptive_tuning":
+                active_pred[key] = {"current_performance": 0.5, "best_performance": 0.5}
 
     # Save future prediction and audit record to Supabase
     try:
@@ -912,6 +944,8 @@ def compute_state(client_payload=None, init=False):
         "roundLogs": round_logs,
         "latestIssue": latest_issue,
         "activePrediction": active_pred,
+        # Also flatten to top level for easier frontend access
+        **active_pred,
         "evolutionStats": {
             "observationsCount": len(history),
             "modelGeneration": active_pred["generation"],
@@ -935,7 +969,7 @@ def compute_state(client_payload=None, init=False):
             "aleatoricEntropy": active_pred["aleatoricEntropy"],
             "modelDisagreement": active_pred["modelDisagreement"],
             "familyWeights": active_pred["familyWeights"],
-            "environmentVector": active_pred["environmentVector"]
+            "environmentVector": active_pred.get("environmentVector", [3.22, 0.08, 0.03, 0.02, 0.12, 0.34, 0.045])
         },
 
         "stats": {

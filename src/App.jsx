@@ -114,6 +114,19 @@ function App() {
       
       const data = response.ok ? await response.json() : null;
       
+      // Debug logging to see what we're getting
+      if (data) {
+        console.log('[App] API Response structure:', {
+          hasActivePrediction: !!data?.activePrediction,
+          hasDirectPrediction: !!data?.prediction,
+          keys: Object.keys(data || {}),
+          prediction: data?.prediction,
+          confidence: data?.confidence
+        });
+      } else {
+        console.log('[App] No data received from API');
+      }
+      
       // 3. Process completed draws and verify against exact pending predictions
       const rawLatest = String(
         (clientDraws.length > 0 ? clientDraws[0].issueNumber : '') ||
@@ -174,14 +187,17 @@ function App() {
       }
 
       // 4. Update Active Prediction - Absolute lock-in per issue
-      if (data?.activePrediction) {
-        const targetIss = String(data.activePrediction.nextIssue || canonicalNext);
-        const drawnIss = String(data.activePrediction.latestIssue || canonicalLatest);
+      // Handle both direct API response and nested activePrediction structure
+      const predictionData = data?.activePrediction || data;
+      
+      if (predictionData && predictionData.prediction) {
+        const targetIss = String(predictionData.nextIssue || canonicalNext);
+        const drawnIss = String(predictionData.latestIssue || canonicalLatest);
         const tagIss = `#${targetIss.slice(-5)}`;
         
         setActivePrediction(prev => {
           const nextPred = {
-            ...data.activePrediction,
+            ...predictionData,
             nextIssue: targetIss,
             latestIssue: drawnIss
           };
@@ -210,9 +226,9 @@ function App() {
         });
 
         const predInfo = {
-          targetBS: data.activePrediction.prediction,
-          targetNum: data.activePrediction.targetNum,
-          pattern: data.activePrediction.patternName,
+          targetBS: predictionData.prediction,
+          targetNum: predictionData.targetNum,
+          pattern: predictionData.patternName,
           level: currentLevel
         };
         pendingPredictions.current[targetIss] = predInfo;
