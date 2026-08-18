@@ -5,7 +5,7 @@ import HistoryLog from './components/HistoryLog';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://win-vlmx.onrender.com';
 const BACKEND_URL = `${API_BASE_URL.replace(/\/$/, '')}/api/state`;
 const WINGO_API = import.meta.env.VITE_WINGO_API_URL || 'https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json';
-const POLL_INTERVAL_MS = 5000;
+const POLL_INTERVAL_MS = 1000;
 
 const STORAGE_KEYS = {
   MASTER_LOGS: 'WINGO_MASTER_ROUND_LOGS_V4',
@@ -114,17 +114,25 @@ function App() {
       const data = response.ok ? await response.json() : null;
       
       // 3. Process completed draws and verify against exact pending predictions
-      const canonicalLatest = String(
+      const rawLatest = String(
         (clientDraws.length > 0 ? clientDraws[0].issueNumber : '') ||
         data?.latestIssue ||
         data?.currentIssue ||
         ''
       );
-      const canonicalNext = canonicalLatest ? String(BigInt(canonicalLatest) + 1n) : '';
 
-      if (canonicalLatest) {
-        setLatestIssue(canonicalLatest);
-      }
+      // Enforce strict monotonically increasing issue numbers to prevent jitter
+      let canonicalLatest = rawLatest;
+      setLatestIssue(prev => {
+        if (!prev || (rawLatest && BigInt(rawLatest) >= BigInt(prev))) {
+          canonicalLatest = rawLatest;
+          return rawLatest;
+        }
+        canonicalLatest = prev;
+        return prev;
+      });
+
+      const canonicalNext = canonicalLatest ? String(BigInt(canonicalLatest) + 1n) : '';
 
       if (data?.history && data.history.length > 0) {
         setHistory(data.history);
@@ -179,9 +187,20 @@ function App() {
 
           // If transitioning to a brand new round, lock in new prediction
           if (!prev || String(prev.nextIssue) !== targetIss) {
-            return nextPred;
+            // Only update if it moves strictly forward to prevent backwards jumping
+            if (!prev || BigInt(targetIss) >= BigInt(prev.nextIssue)) {
+                return nextPred;
+            }
+            return prev;
           }
-          // If within the active round, maintain steady prediction direction
+          
+          // Seamlessly upgrade to EVOSEQ if the previous prediction was a mathematical fallback
+          const isEvoseqUpgrade = prev.pattern && prev.pattern.includes("⚡") && nextPred.pattern && !nextPred.pattern.includes("⚡");
+          if (isEvoseqUpgrade) {
+              return nextPred;
+          }
+          
+          // If within the active round and already upgraded, maintain steady prediction direction
           return {
             ...nextPred,
             prediction: prev.prediction,

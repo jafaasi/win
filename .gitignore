@@ -27,3 +27,16 @@ dist-ssr
 
 .env
 venv/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local Databases and Models
+*.db
+*.sqlite
+*.pt
+*.npy

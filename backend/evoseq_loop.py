@@ -22,6 +22,71 @@ from app.models.baseline import BaseModel
 from EVOSEQ.app.models.transformer import TransformerSequenceModel
 from EVOSEQ.app.models.ssm import MambaSequenceModel
 
+# Global Singleton for Continuous Evolution
+class GlobalBrain:
+    def __init__(self):
+        self.predictor = None
+        self.transformer = None
+        self.mamba = None
+        self.is_initialized = False
+
+    def init_or_load(self):
+        if self.is_initialized:
+            return
+
+        self.predictor = AdaptiveRNGPredictor(output_space_size=10, threshold=0.03)
+        
+        # Load or create Transformer
+        transformer_path = os.path.join(os.path.dirname(__file__), 'brain_transformer.pt')
+        if os.path.exists(transformer_path):
+            try:
+                self.transformer = TransformerSequenceModel.load(transformer_path)
+            except:
+                self.transformer = TransformerSequenceModel(input_size=10, hidden_size=64, heads=2, layers=2, context_length=64, temperature=1.1)
+        else:
+            self.transformer = TransformerSequenceModel(input_size=10, hidden_size=64, heads=2, layers=2, context_length=64, temperature=1.1)
+            
+        # Load or create Mamba
+        mamba_path = os.path.join(os.path.dirname(__file__), 'brain_mamba.pt')
+        if os.path.exists(mamba_path):
+            try:
+                self.mamba = MambaSequenceModel.load(mamba_path)
+            except:
+                self.mamba = MambaSequenceModel(input_size=10, hidden_size=64, layers=2, context_length=64, temperature=1.1)
+        else:
+            self.mamba = MambaSequenceModel(input_size=10, hidden_size=64, layers=2, context_length=64, temperature=1.1)
+            
+        self.predictor.models.append(DeepPyTorchWrapper(self.transformer))
+        self.predictor.models.append(DeepPyTorchWrapper(self.mamba))
+        
+        meta_path = os.path.join(os.path.dirname(__file__), 'brain_meta.npy')
+        if os.path.exists(meta_path):
+            try:
+                saved_weights = np.load(meta_path)
+                if len(saved_weights) == len(self.predictor.models):
+                    self.predictor.weights = saved_weights
+                else:
+                    self.predictor.weights = np.ones(len(self.predictor.models)) / len(self.predictor.models)
+            except:
+                self.predictor.weights = np.ones(len(self.predictor.models)) / len(self.predictor.models)
+        else:
+            self.predictor.weights = np.ones(len(self.predictor.models)) / len(self.predictor.models)
+            
+        self.is_initialized = True
+
+    def save_brain(self):
+        try:
+            transformer_path = os.path.join(os.path.dirname(__file__), 'brain_transformer.pt')
+            mamba_path = os.path.join(os.path.dirname(__file__), 'brain_mamba.pt')
+            meta_path = os.path.join(os.path.dirname(__file__), 'brain_meta.npy')
+            self.transformer.save(transformer_path)
+            self.mamba.save(mamba_path)
+            np.save(meta_path, self.predictor.weights)
+        except Exception as e:
+            print(f"Failed to save brain state: {e}")
+
+_global_brain = GlobalBrain()
+
 class DeepPyTorchWrapper(BaseModel):
     def __init__(self, pytorch_model):
         super().__init__(10)
@@ -59,27 +124,18 @@ def run_evoseq_cycle(history, db):
     
     print(f"Stats -> Chi2 p-val: {chi_square['p_value']:.4f} | Runs p-val: {bit_runs['p_value']:.4f} | Entropy: {entropy:.4f}")
     
-    # 3. Instantiate Adaptive Predictor & Models
-    # We initialize it with the basic models already
-    predictor = AdaptiveRNGPredictor(output_space_size=10, threshold=0.03)
-    
-    # Add our deep models
-    transformer = TransformerSequenceModel(
-        input_size=10, hidden_size=64, heads=2, layers=2, context_length=64, temperature=1.1
-    )
-    mamba = MambaSequenceModel(
-        input_size=10, hidden_size=64, layers=2, context_length=64, temperature=1.1
-    )
-    
-    predictor.models.append(DeepPyTorchWrapper(transformer))
-    predictor.models.append(DeepPyTorchWrapper(mamba))
-    
-    # Expand weights vector
-    predictor.weights = np.ones(len(predictor.models)) / len(predictor.models)
+    # 3. Instantiate Adaptive Predictor & Models via Global Singleton
+    _global_brain.init_or_load()
+    predictor = _global_brain.predictor
     
     # 4. Daily / Online Update (Train & Score Models)
     print("Executing Adaptive Online Update (Training Ensemble)...")
+    # Only fit the newest sequence data to prevent catastrophic forgetting
+    # We pass the full int_seq to update_daily, which handles its own partial_fit logic
     predictor.update_daily(int_seq)
+    
+    # 4.1 Save brain state to disk for long-term evolution
+    _global_brain.save_brain()
     
     print(f"Ensemble Alert Status: {predictor.alert}")
     for idx, w in enumerate(predictor.weights):

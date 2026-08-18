@@ -96,6 +96,19 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
                             pattern_name=ai_result["patternName"]
                         )
                         
+                        from backend.database import save_prediction_audit
+                        save_prediction_audit(
+                            db=db,
+                            sequence_no=next_issue,
+                            model_version=ai_result.get("championGenome", "EVOSEQ"),
+                            prob_big=0.55 if ai_result["prediction"] == "Big" else 0.45,
+                            predicted_digit=ai_result.get("targetNum"),
+                            entropy=ai_result.get("entropy", 3.0),
+                            regime_id=ai_result.get("latentRegime", ""),
+                            drift_score=ai_result.get("driftScore", 0.0),
+                            null_adv=ai_result.get("nullAdvantage", 0.0)
+                        )
+                        
                         # --- NEW: SAVE FULL STATE FOR VERCEL ---
                         from backend.database import save_ai_brain_state
                         save_ai_brain_state(

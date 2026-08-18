@@ -365,10 +365,18 @@ def generate_multi_horizon_probabilities(history):
                 probabilities[k] += (counts[k] / s_counts) * order_weight
             total_weight += order_weight
 
-    # Add minor empirical prior to prevent zero-probability collapse
+    # Add empirical prior from 1st-order Markov transitions to prevent zero-probability collapse
+    last_digit = int(h_str[-1]) if h_str else 0
+    trans_counts = [0.1] * 10
+    for i in range(len(h_str) - 1):
+        if int(h_str[i]) == last_digit:
+            trans_counts[int(h_str[i+1])] += 1.0
+            
+    sum_trans = sum(trans_counts)
     for k in range(10):
-        probabilities[k] += 0.02
-    total_weight += 0.2
+        # Weight the prior at exactly 1 occurrence to gently guide ties without overwhelming deep matches
+        probabilities[k] += (trans_counts[k] / sum_trans) * 1.0
+    total_weight += 1.0
     
     # Normalize to H1 probability simplex
     h1 = [p / total_weight for p in probabilities]
@@ -407,14 +415,20 @@ def generate_multi_horizon_probabilities(history):
     p_small = sum(h1[:5])
 
     # Absolute mathematical dominance
-    if p_big >= p_small:
+    if p_big > p_small:
         final_winner = "Big"
         win_prob = p_big
         valid_range = range(5, 10)
-    else:
+    elif p_small > p_big:
         final_winner = "Small"
         win_prob = p_small
         valid_range = range(0, 5)
+    else:
+        # Break exact 50/50 ties by looking at the most frequent recent outcomes
+        recent_bigs = sum(1 for x in h_str[-5:] if int(x) >= 5)
+        final_winner = "Big" if recent_bigs >= 3 else "Small"
+        win_prob = p_big
+        valid_range = range(5, 10) if final_winner == "Big" else range(0, 5)
 
     # Exact argmax for digits (Zero stochastic randomness)
     sorted_digits = sorted(valid_range, key=lambda k: h1[k], reverse=True)
@@ -587,15 +601,15 @@ def exploit_all_loopholes(history, db=None, current_level=1, last_miss_direction
             print("EVOSEQ Registry load note:", e)
 
     active_loophole_name = f"🧬 Gen #{generation} · {champion_name} Bayesian Markov"
-    loophole_insight = f"{regime_info['label']}. Calibrated Conviction: {final_confidence}%. Null Adv: +{round(null_adv*100, 1)}%."
+    loophole_insight = f"{regime_info['label']}. Calibrated Conviction: {calibrated_conf}%. Null Adv: +{round(null_adv*100, 1)}%."
     total_samples = len(history)
 
     return {
         "prediction": final_winner,
-        "confidence": final_confidence,
-        "targetNum": target_digit,
-        "hedgeNum": hedge_digit,
-        "patternName": active_loophole_name,
+        "confidence": calibrated_conf,
+        "targetNum": int(sorted_digits[0]),
+        "hedgeNum": int(sorted_digits[1]),
+        "patternName": f"⚡ Fast Markov Fallback",
         "strikeQuality": strike_quality,
         "loopholeInsight": loophole_insight,
         "generation": generation,
@@ -697,14 +711,27 @@ def compute_state(client_payload=None, init=False):
         # 2. Fetch recent verified logs (last 50 rounds for UI display)
         recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(50).all()
         
+        # 3. Fetch recent audit logs for targetNum retrieval
+        from backend.database import PredictionAudit
+        recent_audits = db.query(PredictionAudit).order_by(PredictionAudit.id.desc()).limit(100).all()
+        audit_map = {a.sequence_no: a.predicted_digit for a in recent_audits if a.predicted_digit is not None}
+        
         # --- NEW: Fetch pre-computed live state from Render EVOSEQ PyTorch Daemon ---
         from backend.database import AIBrainState
         live_state_record = db.query(AIBrainState).filter(AIBrainState.model_name == "Live_UI_State").order_by(AIBrainState.id.desc()).first()
         if live_state_record and live_state_record.synaptic_weights:
             ai = json.loads(live_state_record.synaptic_weights)
-        else:
-            # Fallback to local edge computation if DB state is missing
-            ai = exploit_all_loopholes(history, db=db, current_level=current_level)
+            if ai and isinstance(ai, dict):
+                # Only use live state if it corresponds to the current issue we are predicting
+                if str(ai.get("nextIssue")) == str(current_issue):
+                    safe_ai = ai
+                else:
+                    safe_ai = {}
+        
+        # If scraper daemon is lagging, we seamlessly fallback to fast mathematical prior
+        fallback_ai = exploit_all_loopholes(history, current_level=current_level)
+        safe_ai = safe_ai if 'safe_ai' in locals() and safe_ai else {}
+        safe_ai = {**fallback_ai, **safe_ai}
         db.close()
     except Exception as e:
         print("DB Sync Note:", e)
@@ -830,15 +857,23 @@ def compute_state(client_payload=None, init=False):
             })
 
     # Convert DB logs
-    draw_nums = {d.issue_number: d.number for d in db_draws}
+    if outcomes_list:
+        draw_nums = {str(o.sequence_no): int(o.digit) for o in outcomes_list}
+    else:
+        draw_nums = {d.issue_number: d.number for d in db_draws}
+        
     db_logs = []
     for log in recent_logs:
-        actual_num = draw_nums.get(log.issue_number, 8 if log.actual_size == "Big" else 2)
+        actual_num = draw_nums.get(str(log.issue_number), 8 if log.actual_size == "Big" else 2)
+        target_num = audit_map.get(str(log.issue_number)) if 'audit_map' in locals() else None
+        if target_num is None:
+            target_num = 7 if log.predicted_size == "Big" else 2
+            
         db_logs.append({
             "id": f"db-{log.id}",
             "issue": f"#{str(log.issue_number)[-5:]}",
             "targetBS": log.predicted_size,
-            "targetNum": 7 if log.predicted_size == "Big" else 2,
+            "targetNum": target_num,
             "actualBS": log.actual_size,
             "actualNum": actual_num,
             "isWin": log.is_win,
@@ -851,15 +886,15 @@ def compute_state(client_payload=None, init=False):
     merged_logs = []
     seen_issues = set()
     
-    for ml in round_logs:
-        if ml["issue"] not in seen_issues:
-            merged_logs.append(ml)
-            seen_issues.add(ml["issue"])
-            
     for dl in db_logs:
         if dl["issue"] not in seen_issues:
             merged_logs.append(dl)
             seen_issues.add(dl["issue"])
+            
+    for ml in round_logs:
+        if ml["issue"] not in seen_issues:
+            merged_logs.append(ml)
+            seen_issues.add(ml["issue"])
             
     round_logs = merged_logs if merged_logs else round_logs
 
