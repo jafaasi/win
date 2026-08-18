@@ -14,7 +14,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 BOT_TOKEN = "8796895729:AAHC1UiRlAdn2Ha87_mG3RDLwaUZG5Qcr40"
 API_URL = "http://localhost:8000/api/state"
 WINGO_API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
-CHECK_INTERVAL = 30  # Check for new predictions every 30 seconds
+CHECK_INTERVAL = 5  # Check for new predictions every 5 seconds
 
 # Store for subscribed users and last prediction
 subscribed_users = set()
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 def get_prediction():
     """Fetch prediction from local API"""
     try:
-        with httpx.Client(timeout=10) as client:
+        with httpx.Client(timeout=5) as client:
             response = client.get(API_URL)
             if response.status_code == 200:
                 return response.json()
@@ -47,7 +47,7 @@ def get_prediction():
 def get_wingo_results():
     """Fetch recent results from WinGo API"""
     try:
-        with httpx.Client(timeout=10) as client:
+        with httpx.Client(timeout=5) as client:
             response = client.get(WINGO_API_URL)
             if response.status_code == 200:
                 return response.json()
@@ -358,6 +358,14 @@ async def main():
     
     # Start the bot
     logger.info("Starting WinGo Prediction Bot...")
+    
+    # Send immediate prediction on startup
+    try:
+        initial_prediction = get_prediction()
+        if initial_prediction:
+            logger.info(f"Initial prediction fetched: {initial_prediction.get('currentIssue')}")
+    except Exception as e:
+        logger.error(f"Error fetching initial prediction: {e}")
     
     # Start background prediction updater
     asyncio.create_task(prediction_updater(application.bot))
