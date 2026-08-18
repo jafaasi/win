@@ -6,7 +6,7 @@ Provides predictions via Telegram commands
 
 import asyncio
 import logging
-import requests
+import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackContext
 
@@ -25,12 +25,13 @@ logger = logging.getLogger(__name__)
 def get_prediction():
     """Fetch prediction from local API"""
     try:
-        response = requests.get(API_URL, timeout=10)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            logger.error(f"API returned status {response.status_code}")
-            return None
+        with httpx.Client(timeout=10) as client:
+            response = client.get(API_URL)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"API returned status {response.status_code}")
+                return None
     except Exception as e:
         logger.error(f"Error fetching prediction: {e}")
         return None
