@@ -1,12 +1,42 @@
 {
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "public": true,
   "rewrites": [
     {
-      "source": "/api/draws",
-      "destination": "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
+      "source": "/api/state",
+      "destination": "https://win-vlmx.onrender.com/api/state"
+    },
+    {
+      "source": "/api/models",
+      "destination": "https://win-vlmx.onrender.com/api/models"
+    },
+    {
+      "source": "/api/ensemble",
+      "destination": "https://win-vlmx.onrender.com/api/ensemble"
+    },
+    {
+      "source": "/api/environment",
+      "destination": "https://win-vlmx.onrender.com/api/environment"
+    },
+    {
+      "source": "/api/evolution/genealogy",
+      "destination": "https://win-vlmx.onrender.com/api/evolution/genealogy"
     },
     {
       "source": "/api/(.*)",
-      "destination": "/api/index.py"
+      "destination": "https://win-vlmx.onrender.com/api/$1"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600"
+        }
+      ]
     }
   ]
 }

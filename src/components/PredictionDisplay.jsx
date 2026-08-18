@@ -199,12 +199,12 @@ export default function PredictionDisplay({
                     )}
                   </div>
 
-                  <div className={`prediction-label-text ${stochasticPrediction.prediction === 'Big' ? 'big' : 'small'}`} style={{ fontSize: '2rem', margin: '0.5rem 0' }}>
-                    {stochasticPrediction.prediction.toUpperCase()}
+                  <div className={`prediction-label-text ${stochasticPrediction?.prediction === 'Big' ? 'big' : 'small'}`} style={{ fontSize: '2rem', margin: '0.5rem 0' }}>
+                    {(stochasticPrediction?.prediction || 'WAITING').toUpperCase()}
                   </div>
 
-                  <div style={{ textAlign: 'center', fontSize: '0.85rem', color: stochasticPrediction.prediction === 'Big' ? 'var(--big-primary)' : 'var(--small-primary)', fontWeight: 'bold' }}>
-                    CONFIDENCE: {Math.round(stochasticPrediction.confidence)}%
+                  <div style={{ textAlign: 'center', fontSize: '0.85rem', color: stochasticPrediction?.prediction === 'Big' ? 'var(--big-primary)' : 'var(--small-primary)', fontWeight: 'bold' }}>
+                    CONFIDENCE: {Math.round(stochasticPrediction?.confidence || 0)}%
                   </div>
                 </div>
               )}

@@ -717,12 +717,16 @@ def compute_state(client_payload=None, init=False):
         recent_audits = db.query(PredictionAudit).order_by(PredictionAudit.id.desc()).limit(100).all()
         audit_map = {a.sequence_no: a.predicted_digit for a in recent_audits if a.predicted_digit is not None}
         
-        # --- NEW: Fetch pre-computed live state from Render EVOSEQ PyTorch Daemon ---
+        # --- NEW: Fetch pre-computed live state from Local EVOSEQ Engine ---
         live_state_record = db.query(AIBrainState).filter(AIBrainState.model_name == "Live_UI_State").order_by(AIBrainState.id.desc()).first()
         if live_state_record and live_state_record.synaptic_weights:
-            temp_ai = json.loads(live_state_record.synaptic_weights)
-            if temp_ai and isinstance(temp_ai, dict):
-                ai_loaded = temp_ai
+            try:
+                temp_ai = json.loads(live_state_record.synaptic_weights)
+                if temp_ai and isinstance(temp_ai, dict):
+                    ai_loaded = temp_ai
+                    print(f"[API] ✅ Loaded Live_UI_State: Issue {temp_ai.get('currentIssue')} | Prediction: {temp_ai.get('prediction')} ({temp_ai.get('confidence')}%)")
+            except Exception as e:
+                print(f"[API] ⚠️  Failed to parse Live_UI_State JSON: {e}")
         db.close()
     except Exception as e:
         print("DB Sync Note:", e)
@@ -742,14 +746,20 @@ def compute_state(client_payload=None, init=False):
     next_issue = str(int(latest_drawn) + 1)
     current_issue = latest_drawn
 
-    # Only use live state if it corresponds to the upcoming issue we are predicting
-    if str(ai_loaded.get("nextIssue")) == str(next_issue):
-        safe_ai = ai_loaded
-    else:
-        safe_ai = {}
-
     fallback_ai = exploit_all_loopholes(history, current_level=current_level)
-    safe_ai = {**fallback_ai, **safe_ai}
+
+    # Prefer the Local AI Engine output when available. It is the authoritative prediction
+    # source for the next draw, even if the issue clock is slightly behind the live fetch.
+    if ai_loaded and (
+        ai_loaded.get("prediction") or ai_loaded.get("targetNum") or ai_loaded.get("patternName")
+    ):
+        safe_ai = {**fallback_ai, **ai_loaded}
+        safe_ai["source"] = "local_engine"
+        print(f"[API] 🧬 Using LOCAL_ENGINE prediction: {ai_loaded.get('prediction')} ({ai_loaded.get('confidence')}%)")
+    else:
+        safe_ai = dict(fallback_ai)
+        safe_ai["source"] = "fallback"
+        print(f"[API] ⚡ Using FALLBACK prediction: {fallback_ai.get('prediction')} (no local engine data)")
 
     raw_conf = float(safe_ai.get("confidence", fallback_ai["confidence"]))
     if raw_conf < 80.0:
@@ -758,6 +768,9 @@ def compute_state(client_payload=None, init=False):
     else:
         calibrated_conf = round(raw_conf, 1)
 
+    # Build active prediction with full beast-mode metrics from local engine
+    print(f"[API] 📊 Final prediction assembly: Issue {current_issue} → {next_issue} | Pred: {safe_ai.get('prediction')} | Conf: {calibrated_conf}% | Source: {safe_ai.get('source')}")
+    
     active_pred = {
         "currentIssue": current_issue,
         "prediction": safe_ai.get("prediction", fallback_ai["prediction"]),
@@ -768,11 +781,12 @@ def compute_state(client_payload=None, init=False):
         "hedgeNum": safe_ai.get("hedgeNum", fallback_ai["hedgeNum"]),
         "nextIssue": next_issue,
         "latestIssue": latest_issue,
+        "source": safe_ai.get("source", "fallback"),
         "strikeQuality": safe_ai.get("strikeQuality", fallback_ai["strikeQuality"]),
-        "expertThoughts": safe_ai.get("loopholeInsight", fallback_ai["loopholeInsight"]),
+        "expertThoughts": safe_ai.get("expertThoughts", safe_ai.get("loopholeInsight", fallback_ai["loopholeInsight"])),
         "generation": safe_ai.get("generation", fallback_ai.get("generation", 1)),
         "totalSamplesTrained": safe_ai.get("totalSamplesTrained", fallback_ai.get("totalSamplesTrained", len(history))),
-        "championGenome": safe_ai.get("championGenome", fallback_ai.get("championGenome", "SSM-Mamba-v1")),
+        "championGenome": safe_ai.get("championGenome", fallback_ai.get("championGenome", "Transformer-Mamba-Ensemble")),
         "latentRegime": safe_ai.get("latentRegime", fallback_ai.get("latentRegime", "🔬 Calibrating Baseline")),
         "regimeProbabilities": safe_ai.get("regimeProbabilities", fallback_ai.get("regimeProbabilities", {})),
         "predictiveScore": safe_ai.get("predictiveScore", fallback_ai.get("predictiveScore", 0.54)),

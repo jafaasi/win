@@ -1,0 +1,25 @@
+# Exclude Python backend (runs on Render, not Vercel)
+backend/
+EVOSEQ/
+*.py
+Procfile
+render.yaml
+
+# Exclude Python dependencies and virtual env
+.venv/
+requirements.txt
+
+# Exclude large model files
+*.pt
+*.npy
+
+# Exclude git and cache
+.git/
+.gitignore
+
+# Exclude test files
+test_*.py
+tests/
+
+# Only include the Vite dist build
+# (vercel.json will tell Vercel to serve dist/)

@@ -10,8 +10,7 @@ import uvicorn
 # Ensure we can import from root modules when run via github actions
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.database import SessionLocal, Outcome, Draw, save_live_draws, save_prediction
-from api.index import exploit_all_loopholes
+from backend.database import SessionLocal, save_live_draws
 
 API_ENDPOINT = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
 
@@ -27,9 +26,18 @@ async def fetch_wingo_draws():
             print(f"Fetch Note: {e}")
     return []
 
-async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
+async def run_scraper_daemon(max_duration_seconds=18000):
+    """
+    ☁️ RENDER CLOUD SCRAPER: Lightweight historical data collector
+    - Polls WinGo API every 1.5 seconds
+    - Stores outcomes in Supabase (past draws only)
+    - Does NOT run ML or make predictions
+    - Leaves all intelligence to the local engine
+    """
     start_time = time.time()
-    print(f"🚀 Starting 24/7 WinGo AI Deep Learning Daemon (Session limit: {max_duration_seconds // 3600} hours)...")
+    print(f"☁️ Starting Render Cloud Scraper (Historical Data Collector)")
+    print(f"📊 Session limit: {max_duration_seconds // 3600} hours")
+    print(f"⚠️  NOTE: Prediction engine runs on LOCAL MACHINE via local_ai_engine.py")
     
     last_processed_issue = None
     draws_collected = 0
@@ -46,14 +54,9 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
                     
                     db = SessionLocal()
                     try:
-                        from backend.daemon_runner import remote_log
-                        remote_log(f"Fetched {len(draws)} draws. Processing issue {latest_issue}...")
-                        # 1. Sync draws & verify pending prediction logs
+                        # 1. ONLY sync draws to Supabase - no prediction logic
                         new_draws = save_live_draws(db, draws)
-                        # The AI Engine is now completely detached and runs locally!
-                        print(f"✅ Cloud sync complete for issue {latest_issue}. Standing by for next draw.")
-
-                        pass
+                        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] ☁️ Outcome #{latest_issue}: {draws[0]['number']} | {draws_collected} collected | Supabase sync complete")
                     finally:
                         db.close()
         except Exception as e:
@@ -67,19 +70,41 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Launch the infinite scraper daemon in the background of the FastAPI event loop
-    task = asyncio.create_task(run_scraper_daemon(max_duration_seconds=18000))
+    task = asyncio.create_task(run_scraper_daemon(max_duration_seconds=999999999))
     yield
     task.cancel()
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title="WinGo Cloud Scraper (Historical Data Only)")
+
+# Allow all origins for Vercel + Localhost
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("startup")
+async def startup_event():
+    # Spawn lightweight cloud scraper daemon only
+    print("☁️ Spawning Render Cloud Scraper...")
+    from backend.scraper import run_scraper_daemon
+    asyncio.create_task(run_scraper_daemon(max_duration_seconds=999999999))
 
 @app.get("/")
-def read_root():
-    return {"status": "AI Engine Daemon is running 24/7", "service": "EVOSEQ WinGo Brain"}
-
-@app.get("/health")
-@app.get("/api/health")
+@app.get("/healthz")
 def health_check():
+    return {
+        "status": "online",
+        "service": "WinGo Cloud Scraper",
+        "role": "Historical Data Collection Only",
+        "note": "Predictions generated on local machine via local_ai_engine.py"
+    }
+
+@app.get("/api/health")
+def api_health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 if __name__ == "__main__":
@@ -88,5 +113,6 @@ if __name__ == "__main__":
         asyncio.run(run_scraper_daemon(max_duration_seconds=15))
     else:
         port = int(os.environ.get("PORT", 10000))
-        print(f"🚀 Starting FastAPI Server on 0.0.0.0:{port} for Render compatibility...", flush=True)
+        print(f"🚀 Starting Render Cloud Scraper on 0.0.0.0:{port}...", flush=True)
         uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+

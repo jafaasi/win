@@ -60,6 +60,7 @@ function App() {
   
   const [syncStatus, setSyncStatus] = useState('connecting');
   const [lastSyncTime, setLastSyncTime] = useState(null);
+  const predictionSource = activePrediction?.source === 'local_engine' ? 'LOCAL ENGINE' : 'FALLBACK MODE';
 
   // Synchronize state with persistent localStorage
   useEffect(() => {
@@ -254,7 +255,7 @@ function App() {
 
   // Build UI Prediction Display Props
   let predictionData = {};
-  if (activePrediction) {
+  if (activePrediction && activePrediction.prediction) {
     const isBig = activePrediction.prediction === 'Big';
     const parity = (activePrediction.targetNum % 2 !== 0) 
       ? { name: 'Odd', probability: 88 } 
@@ -304,7 +305,7 @@ function App() {
         nextSide: activePrediction.prediction
       },
       stochasticPrediction: activePrediction.stochasticPrediction,
-      expertThoughts: activePrediction.expertThoughts || `Multi-model consensus aligned. Loophole detection active on ${activePrediction.prediction.toUpperCase()}.`,
+      expertThoughts: activePrediction.expertThoughts || `Multi-model consensus aligned. Loophole detection active on ${(activePrediction.prediction || 'BIG').toUpperCase()}.`,
       pillars: [
         {
           id: 'pillar-1',
@@ -344,7 +345,7 @@ function App() {
           </span>
           <div className="auto-controls">
             <span className="status-indicator pulse" style={{ background: '#10b981', display: 'inline-block', width: 8, height: 8, borderRadius: '50%', marginRight: 6 }} />
-            Live Sync: ACTIVE
+            Live Sync: ACTIVE · {predictionSource}
           </div>
         </div>
 

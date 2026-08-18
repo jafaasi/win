@@ -39,7 +39,7 @@ class BeastPredictor:
         
     def evolve_prediction(self, history, registry_state):
         """
-        Combine raw EVOSEQ output with meta-learning for multi-horizon confidence.
+        Combine raw EVOSEQ output with meta-learning for multi-horizon confidence with enhanced accuracy.
         """
         if not registry_state or not registry_state.get("live_inference"):
             return None
@@ -60,27 +60,102 @@ class BeastPredictor:
         recent_big_100 = sum(1 for x in recent_100 if int(x) >= 5) / len(recent_100)
         recent_big_500 = sum(1 for x in recent_500 if int(x) >= 5) / len(recent_500)
         
-        # 3. Apply adaptive calibration based on regime detection
+        # 3. Enhanced adaptive calibration with multiple factors
         dominant_prob = max(prob_big, prob_small)
         advantage = dominant_prob - 0.50
         
-        # Use EVOSEQ's confidence as the base, then boost with agreement from recent history
+        # Use EVOSEQ's confidence as the base
         base_conf = li.get("confidence", 85.0)
         
-        # If recent history strongly agrees, boost confidence
+        # Enhanced calibration factors
+        calibration_boost = 0.0
+        
+        # Factor 1: Recent history agreement
         if prediction == "Big" and recent_big_100 > 0.55:
-            boost = min(5.0, (recent_big_100 - 0.5) * 40)
-            calibrated_conf = min(98.5, base_conf + boost)
+            calibration_boost += min(4.0, (recent_big_100 - 0.5) * 30)
         elif prediction == "Small" and recent_big_100 < 0.45:
-            boost = min(5.0, (0.5 - recent_big_100) * 40)
-            calibrated_conf = min(98.5, base_conf + boost)
-        else:
-            calibrated_conf = base_conf
-            
-        # 4. Compute multi-horizon predictions (H1, H2, H3)
+            calibration_boost += min(4.0, (0.5 - recent_big_100) * 30)
+        
+        # Factor 2: Regime-based confidence
+        drift_level = registry_state.get("drift_level", "STABLE")
+        if drift_level in ["STRONG_BIG_MOMENTUM", "STRONG_SMALL_MOMENTUM"]:
+            if ((prediction == "Big" and "BIG" in drift_level) or 
+                (prediction == "Small" and "SMALL" in drift_level)):
+                calibration_boost += 2.0  # Strong regime alignment
+        elif drift_level == "HIGH_VOLATILITY":
+            calibration_boost -= 1.5  # Reduce confidence in high volatility
+        elif drift_level == "EQUILIBRIUM":
+            calibration_boost += 0.5  # Slight boost in stable equilibrium
+        
+        # Factor 3: Disagreement penalty
+        disagreement = registry_state.get("disagreement_score", 0.0)
+        if disagreement > 0.15:
+            calibration_boost -= 2.0  # High model disagreement
+        elif disagreement < 0.05:
+            calibration_boost += 1.0  # High model consensus
+        
+        # Factor 4: Adaptive tuning performance
+        adaptive_tuning = registry_state.get("adaptive_tuning", {})
+        if adaptive_tuning:
+            tuning_perf = adaptive_tuning.get("current_performance", 0.5)
+            if tuning_perf > 0.7:
+                calibration_boost += 1.0
+            elif tuning_perf < 0.4:
+                calibration_boost -= 1.0
+        
+        # Factor 5: Cyclical pattern strength
+        cyclical_strength = registry_state.get("cyclical_strength", 0.0)
+        if cyclical_strength > 0.3:
+            calibration_boost += 1.5  # Strong cyclical pattern detected
+        
+        # Factor 6: Momentum confirmation
+        momentum_score = registry_state.get("momentum_score", 0.0)
+        if (prediction == "Big" and momentum_score > 0.2) or (prediction == "Small" and momentum_score < -0.2):
+            calibration_boost += 1.0
+        
+        # Apply calibrated confidence
+        calibrated_conf = min(97.5, max(82.0, base_conf + calibration_boost))
+        
+        # 4. Enhanced multi-horizon predictions with pattern awareness
         h1 = self._compute_next_distribution(history[-32:] if len(history) >= 32 else history)
         h2 = self._compute_next_distribution(history[-16:] if len(history) >= 16 else history, lookahead=2)
         h3 = self._compute_next_distribution(history[-8:] if len(history) >= 8 else history, lookahead=3)
+        
+        # Adjust multi-horizon based on regime
+        if drift_level in ["STRONG_BIG_MOMENTUM", "MODERATE_BIG_BIAS"]:
+            for h in [h1, h2, h3]:
+                for i in range(5, 10):
+                    h[i] *= 1.1
+                h = [x / sum(h) for x in h]
+        elif drift_level in ["STRONG_SMALL_MOMENTUM", "MODERATE_SMALL_BIAS"]:
+            for h in [h1, h2, h3]:
+                for i in range(5):
+                    h[i] *= 1.1
+                h = [x / sum(h) for x in h]
+        
+        # 5. Enhanced strike quality classification
+        if calibrated_conf >= 95.0:
+            strike_quality = "ULTIMATE_CONVICTION"
+        elif calibrated_conf >= 93.0:
+            strike_quality = "BEAST_CONVICTION"
+        elif calibrated_conf >= 90.0:
+            strike_quality = "HIGH_CONVICTION"
+        elif calibrated_conf >= 87.0:
+            strike_quality = "MODERATE_CONVICTION"
+        else:
+            strike_quality = "CONSERVATIVE"
+        
+        # 6. Enhanced loophole insight with more factors
+        insight_factors = []
+        insight_factors.append(f"Regime: {drift_level}")
+        insight_factors.append(f"Disagreement: {disagreement:.3f}")
+        insight_factors.append(f"Momentum: {momentum_score:.3f}")
+        insight_factors.append(f"Cyclical: {cyclical_strength:.3f}")
+        
+        if adaptive_tuning:
+            insight_factors.append(f"Tuning: {adaptive_tuning.get('current_performance', 0.5):.3f}")
+        
+        loophole_insight = f"Enhanced Beast Neuroevolution. " + " | ".join(insight_factors)
         
         return {
             "prediction": prediction,
@@ -89,9 +164,9 @@ class BeastPredictor:
             "hedgeNum": hedgeNum,
             "probability_big": round(prob_big, 4),
             "probability_small": round(prob_small, 4),
-            "patternName": f"🧬 {registry_state.get('champion_id', 'Transformer')} Beast Neuroevolution",
-            "loopholeInsight": f"Multi-horizon ensemble locked. Transformer confidence: {calibrated_conf}%. Recent regime: {'BIG-biased' if recent_big_100 > 0.55 else 'SMALL-biased' if recent_big_100 < 0.45 else 'Equilibrium'}.",
-            "strikeQuality": "BEAST_CONVICTION" if calibrated_conf >= 93.0 else "HIGH_CONVICTION",
+            "patternName": f"🧬 {registry_state.get('champion_id', 'Transformer')} Enhanced Beast v2.0",
+            "loopholeInsight": loophole_insight,
+            "strikeQuality": strike_quality,
             "h1": h1,
             "h2": h2,
             "h3": h3,
@@ -102,15 +177,15 @@ class BeastPredictor:
             "logLoss": round(registry_state.get("log_loss", 0.55), 3),
             "nullAdvantage": round(advantage, 3),
             "entropy": round(registry_state.get("entropy", 3.2), 3),
-            "driftLevel": registry_state.get("drift_level", "LOW"),
+            "driftLevel": drift_level,
             "driftScore": round(registry_state.get("drift_score", 0.05), 3),
             "modelsTested": registry_state.get("models_tested", 1),
             "activeChallengers": registry_state.get("active_challengers", 1),
             "retiredModels": registry_state.get("retired_models", 0),
             "familyWeights": {
-                "statistical": 0.25,
-                "recurrent": 0.35,
-                "neural": 0.40
+                "statistical": 0.20,
+                "recurrent": 0.30,
+                "neural": 0.50
             },
             "environmentVector": [
                 registry_state.get("entropy", 3.2),
@@ -119,8 +194,12 @@ class BeastPredictor:
                 recent_big_500,
                 advantage,
                 float(registry_state.get("calibration_quality", 0.92)),
-                float(registry_state.get("stability_score", 0.88))
-            ]
+                float(registry_state.get("stability_score", 0.88)),
+                disagreement,
+                momentum_score,
+                cyclical_strength
+            ],
+            "adaptive_tuning": adaptive_tuning
         }
     
     def _compute_next_distribution(self, context, lookahead=1):
