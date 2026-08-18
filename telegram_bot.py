@@ -81,7 +81,7 @@ def format_prediction_message(data):
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command"""
-    user_id = update.effective_user.id
+    user_id = update.effective_chat.id
     subscribed_users.add(user_id)
     
     welcome_message = """
@@ -181,14 +181,14 @@ Statistical analysis and pattern recognition
 
 async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /subscribe command"""
-    user_id = update.effective_user.id
+    user_id = update.effective_chat.id
     subscribed_users.add(user_id)
     await update.message.reply_text("✅ You are now subscribed to automatic prediction updates!")
 
 
 async def unsubscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /unsubscribe command"""
-    user_id = update.effective_user.id
+    user_id = update.effective_chat.id
     if user_id in subscribed_users:
         subscribed_users.remove(user_id)
         await update.message.reply_text("❌ You have been unsubscribed from automatic updates.")
