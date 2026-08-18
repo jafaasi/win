@@ -6,6 +6,9 @@ import sys
 import httpx
 from datetime import datetime
 
+# Force unbuffered output for Render logging
+sys.stdout.reconfigure(line_buffering=True)
+
 # Ensure local imports work in all environments
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
