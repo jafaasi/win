@@ -600,16 +600,16 @@ def exploit_all_loopholes(history, db=None, current_level=1, last_miss_direction
         except Exception as e:
             print("EVOSEQ Registry load note:", e)
 
-    active_loophole_name = f"🧬 Gen #{generation} · {champion_name} Bayesian Markov"
-    loophole_insight = f"{regime_info['label']}. Calibrated Conviction: {calibrated_conf}%. Null Adv: +{round(null_adv*100, 1)}%."
+    active_loophole_name = f"⚡ Gen #{generation} · Fast Markov Fallback"
+    loophole_insight = f"{regime_info['label']}. Calibrated Conviction: {final_confidence}%. Null Adv: +{round(null_adv*100, 1)}%."
     total_samples = len(history)
 
     return {
         "prediction": final_winner,
-        "confidence": calibrated_conf,
-        "targetNum": int(sorted_digits[0]),
-        "hedgeNum": int(sorted_digits[1]),
-        "patternName": f"⚡ Fast Markov Fallback",
+        "confidence": final_confidence,
+        "targetNum": target_digit,
+        "hedgeNum": hedge_digit,
+        "patternName": active_loophole_name,
         "strikeQuality": strike_quality,
         "loopholeInsight": loophole_insight,
         "generation": generation,
