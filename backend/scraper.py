@@ -77,7 +77,7 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
                             prob = li["probability_big"] if is_big else li["probability_small"]
                             
                             ai_result["prediction"] = li["prediction"]
-                            ai_result["confidence"] = round(prob * 100, 1)
+                            ai_result["confidence"] = li.get("confidence", round(prob * 100, 1))
                             ai_result["targetNum"] = li["targetNum"]
                             ai_result["hedgeNum"] = li["hedgeNum"]
                             ai_result["patternName"] = f"🧬 {registry_state.get('champion_id', 'SSM')} Deep Neural Engine"

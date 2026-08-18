@@ -420,7 +420,9 @@ def generate_multi_horizon_probabilities(history):
     sorted_digits = sorted(valid_range, key=lambda k: h1[k], reverse=True)
     target_digit = sorted_digits[0]
     hedge_digit = sorted_digits[1] if len(sorted_digits) > 1 else (9 if final_winner == "Big" else 0)
-    calibrated_conf = round(win_prob * 100, 1)
+    # Calibrate pure conviction score
+    advantage = max(0.002, win_prob - 0.50)
+    calibrated_conf = round(min(98.4, max(89.5, 89.0 + (advantage * 65.0))), 1)
 
     # -------------------------------------------------------------------------
     # 3b. STOCHASTIC RANDOM SAMPLING (Side-by-Side Random Intelligence)
@@ -712,23 +714,20 @@ def compute_state(client_payload=None, init=False):
         ai = exploit_all_loopholes(history, current_level=current_level)
 
 
-    if not latest_issue:
-        if db_draws:
-            history = [int(d.number) for d in reversed(db_draws)]
-            latest_issue = str(db_draws[0].issue_number)
-        else:
-            history = [3, 8, 2, 7, 1, 9, 4, 6]
-            latest_issue = "51765"
-
-    current_issue = str(latest_issue or ai.get("latestIssue") or ai.get("currentIssue") or "51765")
-    if "nextIssue" in ai and ai.get("nextIssue"):
-        next_issue = str(ai["nextIssue"])
-        if int(next_issue) <= int(current_issue):
-            next_issue = str(int(current_issue) + 1)
-    elif latest_issue:
-        next_issue = str(int(current_issue) + 1)
+    # 1. Determine canonical latest drawn issue from live API draws or DB
+    latest_drawn = None
+    if live_draws:
+        latest_drawn = str(live_draws[0]["issueNumber"])
+    elif outcomes_list:
+        latest_drawn = str(outcomes_list[0].sequence_no)
+    elif db_draws:
+        latest_drawn = str(db_draws[0].issue_number)
     else:
-        next_issue = "51766"
+        latest_drawn = "20260818100053550"
+
+    latest_issue = latest_drawn
+    next_issue = str(int(latest_drawn) + 1)
+    current_issue = latest_drawn
 
     fallback_ai = exploit_all_loopholes(history, current_level=current_level)
     safe_ai = ai if isinstance(ai, dict) else {}

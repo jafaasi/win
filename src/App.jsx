@@ -113,70 +113,77 @@ function App() {
       
       const data = response.ok ? await response.json() : null;
       
-      if (data) {
-        if (data.latestIssue) {
-          setLatestIssue(String(data.latestIssue));
-        } else if (clientDraws.length > 0) {
-          setLatestIssue(String(clientDraws[0].issueNumber));
-        }
+      // 3. Process completed draws and verify against exact pending predictions
+      const canonicalLatest = String(
+        (clientDraws.length > 0 ? clientDraws[0].issueNumber : '') ||
+        data?.latestIssue ||
+        data?.currentIssue ||
+        ''
+      );
+      const canonicalNext = canonicalLatest ? String(BigInt(canonicalLatest) + 1n) : '';
 
-        if (data.history && data.history.length > 0) {
-          setHistory(data.history);
-        } else if (historyFromDraws.length > 0) {
-          setHistory(historyFromDraws);
-        }
-
-        if (data.roundLogs && data.roundLogs.length > 0) {
-          setRoundLogs(() => {
-            const pendingMap = pendingPredictions.current;
-            const syncedLogs = data.roundLogs.map(log => {
-              const pending = pendingMap[log.issue] || 
-                Object.entries(pendingMap).find(([k]) => `#${String(k).slice(-5)}` === log.issue)?.[1];
-              
-              if (pending) {
-                const isWin = (pending.targetBS === log.actualBS);
-                return {
-                  ...log,
-                  targetBS: pending.targetBS,
-                  targetNum: pending.targetNum !== undefined ? pending.targetNum : log.targetNum,
-                  isWin: isWin,
-                  pattern: pending.pattern || log.pattern,
-                  level: pending.level || log.level
-                };
-              }
-              return log;
-            });
-
-            if (syncedLogs.length > 0) {
-              const latestLog = syncedLogs[0];
-              const prevLvl = Number(latestLog.level) || 1;
-              const nextLvl = latestLog.isWin ? 1 : (prevLvl < 3 ? prevLvl + 1 : 1);
-              setCurrentLevel(nextLvl);
-            }
-
-            return syncedLogs.slice(0, 10000);
-          });
-        }
+      if (canonicalLatest) {
+        setLatestIssue(canonicalLatest);
       }
 
+      if (data?.history && data.history.length > 0) {
+        setHistory(data.history);
+      } else if (historyFromDraws.length > 0) {
+        setHistory(historyFromDraws);
+      }
+
+      if (data?.roundLogs && data.roundLogs.length > 0) {
+        setRoundLogs(() => {
+          const pendingMap = pendingPredictions.current;
+          const syncedLogs = data.roundLogs.map(log => {
+            const pending = pendingMap[log.issue] || 
+              Object.entries(pendingMap).find(([k]) => `#${String(k).slice(-5)}` === log.issue)?.[1];
+            
+            if (pending) {
+              const isWin = (pending.targetBS === log.actualBS);
+              return {
+                ...log,
+                targetBS: pending.targetBS,
+                targetNum: pending.targetNum !== undefined ? pending.targetNum : log.targetNum,
+                isWin: isWin,
+                pattern: pending.pattern || log.pattern,
+                level: pending.level || log.level
+              };
+            }
+            return log;
+          });
+
+          if (syncedLogs.length > 0) {
+            const latestLog = syncedLogs[0];
+            const prevLvl = Number(latestLog.level) || 1;
+            const nextLvl = latestLog.isWin ? 1 : (prevLvl < 3 ? prevLvl + 1 : 1);
+            setCurrentLevel(nextLvl);
+          }
+
+          return syncedLogs.slice(0, 10000);
+        });
+      }
+
+      // 4. Update Active Prediction - Absolute lock-in per issue
       if (data?.activePrediction) {
-        const inferredLatest = latestIssue ? Number(latestIssue) : 0;
-        const safeNextIssue = Number(data.activePrediction.nextIssue || inferredLatest + 1);
-        const nextIss = String(Math.max(safeNextIssue, inferredLatest + 1));
-        const tagIss = `#${nextIss.slice(-5)}`;
+        const targetIss = String(data.activePrediction.nextIssue || canonicalNext);
+        const drawnIss = String(data.activePrediction.latestIssue || canonicalLatest);
+        const tagIss = `#${targetIss.slice(-5)}`;
         
         setActivePrediction(prev => {
-          const nextPrediction = {
+          const nextPred = {
             ...data.activePrediction,
-            nextIssue: nextIss,
-            latestIssue: data.activePrediction.latestIssue || latestIssue || nextIss
+            nextIssue: targetIss,
+            latestIssue: drawnIss
           };
 
-          if (!prev || String(prev.nextIssue) !== nextIss) {
-            return nextPrediction;
+          // If transitioning to a brand new round, lock in new prediction
+          if (!prev || String(prev.nextIssue) !== targetIss) {
+            return nextPred;
           }
+          // If within the active round, maintain steady prediction direction
           return {
-            ...nextPrediction,
+            ...nextPred,
             prediction: prev.prediction,
             targetNum: prev.targetNum
           };
@@ -188,19 +195,8 @@ function App() {
           pattern: data.activePrediction.patternName,
           level: currentLevel
         };
-        pendingPredictions.current[nextIss] = predInfo;
+        pendingPredictions.current[targetIss] = predInfo;
         pendingPredictions.current[tagIss] = predInfo;
-      } else if (historyFromDraws.length >= 2) {
-        const localPrediction = predictNextOutcome(historyFromDraws, currentLevel);
-        setActivePrediction({
-          prediction: localPrediction.prediction,
-          confidence: localPrediction.confidence,
-          targetNum: localPrediction.predictedNumber,
-          hedgeNum: localPrediction.predictedNumber,
-          patternName: 'Local Predictor Fallback',
-          nextIssue: latestIssue ? String(Number(latestIssue) + 1) : 'pending',
-          strikeQuality: 'LOCAL_FALLBACK'
-        });
       }
 
       setSyncStatus('live');
@@ -217,7 +213,7 @@ function App() {
     fetchBackendState();
     const interval = setInterval(fetchBackendState, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [currentLevel, isPolling, lastSyncTime]);
+  }, [currentLevel, isPolling]);
 
   // Bead Plate Generator
   const beadPlate = history.map(n => {
