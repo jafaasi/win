@@ -33,13 +33,17 @@ class GlobalBrain:
         self.is_initialized = False
 
     def init_or_load(self):
+        print("EVO_DEBUG: Starting init_or_load")
         if self.is_initialized:
+            print("EVO_DEBUG: Already initialized")
             return
 
         self.predictor = AdaptiveRNGPredictor(output_space_size=10, threshold=0.03)
+        print("EVO_DEBUG: Initialized Predictor")
         
         # Load or create Transformer
         transformer_path = os.path.join(os.path.dirname(__file__), 'brain_transformer.pt')
+        print("EVO_DEBUG: Loading Transformer")
         if os.path.exists(transformer_path):
             try:
                 self.transformer = TransformerSequenceModel.load(transformer_path)
@@ -47,9 +51,11 @@ class GlobalBrain:
                 self.transformer = TransformerSequenceModel(input_size=10, hidden_size=64, heads=2, layers=2, context_length=64, temperature=1.1)
         else:
             self.transformer = TransformerSequenceModel(input_size=10, hidden_size=64, heads=2, layers=2, context_length=64, temperature=1.1)
+        print("EVO_DEBUG: Loaded Transformer")
             
         # Load or create Mamba
         mamba_path = os.path.join(os.path.dirname(__file__), 'brain_mamba.pt')
+        print("EVO_DEBUG: Loading Mamba")
         if os.path.exists(mamba_path):
             try:
                 self.mamba = MambaSequenceModel.load(mamba_path)
@@ -57,11 +63,13 @@ class GlobalBrain:
                 self.mamba = MambaSequenceModel(input_size=10, hidden_size=64, layers=2, context_length=64, temperature=1.1)
         else:
             self.mamba = MambaSequenceModel(input_size=10, hidden_size=64, layers=2, context_length=64, temperature=1.1)
+        print("EVO_DEBUG: Loaded Mamba")
             
         self.predictor.models.append(DeepPyTorchWrapper(self.transformer))
         self.predictor.models.append(DeepPyTorchWrapper(self.mamba))
         
         meta_path = os.path.join(os.path.dirname(__file__), 'brain_meta.npy')
+        print("EVO_DEBUG: Loading Meta")
         if os.path.exists(meta_path):
             try:
                 saved_weights = np.load(meta_path)
@@ -75,6 +83,7 @@ class GlobalBrain:
             self.predictor.weights = np.ones(len(self.predictor.models)) / len(self.predictor.models)
             
         self.is_initialized = True
+        print("EVO_DEBUG: Finished init_or_load")
 
     def save_brain(self):
         try:
