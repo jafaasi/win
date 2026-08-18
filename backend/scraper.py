@@ -46,6 +46,8 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
                     
                     db = SessionLocal()
                     try:
+                        from backend.daemon_runner import remote_log
+                        remote_log(f"Fetched {len(draws)} draws. Processing issue {latest_issue}...")
                         # 1. Sync draws & verify pending prediction logs
                         new_draws = save_live_draws(db, draws)
                         
