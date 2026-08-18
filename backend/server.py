@@ -71,14 +71,7 @@ import subprocess
 
 @app.on_event("startup")
 async def startup_event():
-    # 1. Spawn isolated daemon process
-    print("🚀 Spawning completely isolated Deep Learning Daemon process...")
-    try:
-        subprocess.Popen([sys.executable, "backend/daemon_runner.py"])
-    except Exception as e:
-        print(f"Failed to spawn daemon: {e}")
-
-    # 2. Spawn keep-alive self-pinger
+    # 1. Spawn keep-alive self-pinger
     print("💓 Spawning Auto Keep-Alive Self-Pinger...")
     asyncio.create_task(keep_alive_self_pinger())
 
