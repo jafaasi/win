@@ -68,22 +68,40 @@ RENDER_ENV=production
 
 ### **2. Local Components Setup**
 
-#### **Option A: Run Both Components Separately (Recommended)**
+#### **Option A: Run Both Components with One Command (Easiest)**
+
+**Start Both Components:**
+```bash
+cd /Users/jaf/win
+./run_all_local.sh
+```
+
+This script will:
+- Automatically activate the virtual environment
+- Install/update dependencies
+- Start both the scraper and AI engine
+- Provide process IDs for management
+
+#### **Option B: Run Both Components Separately**
 
 **Terminal 1 - Start Local Scraper:**
 ```bash
 cd /Users/jaf/win
+source .venv/bin/activate
 python3 run_local_scraper.py
 ```
 
 **Terminal 2 - Start Local AI Engine:**
 ```bash
 cd /Users/jaf/win
+source .venv/bin/activate
 python3 backend/local_ai_engine.py
 ```
 
-#### **Option B: Run Scraper in Test Mode**
+#### **Option C: Run Scraper in Test Mode**
 ```bash
+cd /Users/jaf/win
+source .venv/bin/activate
 python3 run_local_scraper.py --once
 ```
 
@@ -102,6 +120,21 @@ render deploy
 Or use the `render.yaml` configuration for automatic deployment.
 
 ## 🔧 **Component Details**
+
+### **Convenience Script (`run_all_local.sh`)**
+**Purpose**: Start both local components with a single command  
+**Features**:
+- Automatically activates virtual environment
+- Installs/updates dependencies
+- Starts both scraper and AI engine
+- Provides process IDs for management
+- Easy Ctrl+C to stop both
+
+**Usage**:
+```bash
+cd /Users/jaf/win
+./run_all_local.sh
+```
 
 ### **Local Scraper (`run_local_scraper.py`)**
 - **Purpose**: Collect historical outcomes from WinGo API
