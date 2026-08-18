@@ -239,7 +239,24 @@ async def check_and_send_predictions(context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in prediction check: {e}")
 
 
-def main():
+async def prediction_updater(bot):
+    """Background task to check for new predictions periodically"""
+    while True:
+        try:
+            # Create a mock context with the bot
+            class MockContext:
+                def __init__(self, bot):
+                    self.bot = bot
+            
+            context = MockContext(bot)
+            await check_and_send_predictions(context)
+        except Exception as e:
+            logger.error(f"Error in prediction updater: {e}")
+        
+        await asyncio.sleep(CHECK_INTERVAL)
+
+
+async def main():
     """Start the bot"""
     # Create application
     application = Application.builder().token(BOT_TOKEN).build()
@@ -258,20 +275,27 @@ def main():
     # Start the bot
     logger.info("Starting WinGo Prediction Bot...")
     
-    # Start background prediction updater using job queue
-    application.job_queue.run_repeating(
-        check_and_send_predictions,
-        interval=CHECK_INTERVAL,
-        first=10,
-        name="prediction_updater"
-    )
+    # Start background prediction updater
+    asyncio.create_task(prediction_updater(application.bot))
     
     # Run the bot
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+    
+    # Keep the bot running
+    try:
+        await asyncio.Event().wait()
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    finally:
+        await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
 
 
 if __name__ == "__main__":
