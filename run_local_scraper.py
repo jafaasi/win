@@ -24,6 +24,7 @@ async def main():
     print("🏠 Starting Local Data Collection Scraper")
     print("💾 Free Tier Optimized: Stores to cloud database")
     print("🧠 AI Engine: Run separately via 'python3 backend/local_ai_engine.py'")
+    print("⏱️  Poll interval: 2.0 seconds for database efficiency")
     print("-" * 50)
     
     # Check for --once flag

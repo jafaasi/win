@@ -264,7 +264,8 @@ def run_local_engine():
                         # 3. Apply Beast-Mode Multi-Horizon Intelligence
                         ai_result = beast.evolve_prediction(history, registry_state)
                         
-                        if ai_result:
+                        # Only update if we have a valid prediction with confidence
+                        if ai_result and ai_result.get("confidence") and ai_result.get("prediction"):
                             next_issue = str(int(latest_issue) + 1)
                             ai_result["currentIssue"] = latest_issue
                             ai_result["nextIssue"] = next_issue

@@ -59,13 +59,16 @@ async def run_scraper_daemon(max_duration_seconds=18000):
                         # 1. ONLY sync draws to database - no prediction logic
                         new_draws = save_live_draws(db, draws)
                         print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] 🏠 Outcome #{latest_issue}: {draws[0]['number']} | {draws_collected} collected | Database sync complete")
+                    except Exception as e:
+                        print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] ⚠️ Database sync error: {e}")
                     finally:
                         db.close()
         except Exception as e:
             print(f"Daemon Cycle Note: {e}")
             
-        # Poll every 1.5 seconds to catch every 30-second draw within 1 second of drawing
-        await asyncio.sleep(1.5)
+        # Poll every 2.0 seconds to catch every 30-second draw within 2 seconds of drawing
+        # Slightly slower to reduce database load
+        await asyncio.sleep(2.0)
 
 from contextlib import asynccontextmanager
 
@@ -117,5 +120,6 @@ if __name__ == "__main__":
         port = int(os.environ.get("PORT", 10000))
         print(f"🚀 Starting Local Scraper on 0.0.0.0:{port}...", flush=True)
         print("💾 Free Tier Optimized: Stores to cloud database, runs locally", flush=True)
+        print("⏱️  Poll interval: 2.0 seconds for database efficiency", flush=True)
         uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
 

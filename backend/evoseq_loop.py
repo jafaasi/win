@@ -312,12 +312,15 @@ def run_evoseq_cycle(history, db):
     # 8. Save Full Registry State to Supabase with enhanced metrics
     tuning_status = adaptive_tuner.get_tuning_status()
     
+    # Use the calibrated confidence from live_inference for consistency
+    final_confidence = live_inference.get("confidence", round(fitness, 1))
+    
     registry_state = {
         "evolver": {},
         "fusion": {},
         "lz": {},
         "champion_id": champion_name,
-        "fitness": round(fitness, 1),
+        "fitness": round(final_confidence, 1),
         "predictive_score": round(max(prob_big, prob_small), 3),
         "calibration_quality": round(entropy / 3.32, 2), # normalized against max entropy
         "stability_score": round(float(chi_square['p_value']), 4),
@@ -365,7 +368,7 @@ def run_evoseq_cycle(history, db):
         generation=registry_state["generation"],
         total_samples=len(history),
         weights_json=json.dumps(registry_state),
-        win_rate=fitness
+        win_rate=final_confidence
     )
     
     print(f"🏆 Best Sub-Model: {champion_name} | Target: {targetNum} | Regime: {current_regime}")

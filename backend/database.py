@@ -248,17 +248,22 @@ def save_live_draws(db, live_draws):
         num = int(item.get("number"))
         act_size = to_big_small(num)
         
-        # 1. Check if Draw exists
-        existing = db.query(Draw).filter(Draw.issue_number == issue).first()
-        if not existing:
-            new_draw = Draw(
-                issue_number=issue,
-                number=num,
-                color="green" if num in [1,3,7,9] else "violet" if num in [0,5] else "red",
-                size=act_size
-            )
-            db.add(new_draw)
-            new_draws += 1
+        # 1. Check if Draw exists (with better error handling)
+        try:
+            existing = db.query(Draw).filter(Draw.issue_number == issue).first()
+            if not existing:
+                new_draw = Draw(
+                    issue_number=issue,
+                    number=num,
+                    color="green" if num in [1,3,7,9] else "violet" if num in [0,5] else "red",
+                    size=act_size
+                )
+                db.add(new_draw)
+                new_draws += 1
+        except Exception as e:
+            # If there's any database error, skip this draw and continue
+            print(f"DB Note: Skipping draw {issue} due to error: {e}")
+            continue
             
         # 1b. Check and synchronize Outcome in Supabase
         try:
