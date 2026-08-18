@@ -18,6 +18,7 @@ CHECK_INTERVAL = 30  # Check for new predictions every 30 seconds
 # Store for subscribed users and last prediction
 subscribed_users = set()
 last_prediction_issue = None
+last_prediction = None  # Store last prediction data for win/loss tracking
 
 # Logging setup
 logging.basicConfig(
@@ -42,7 +43,24 @@ def get_prediction():
         return None
 
 
-def format_prediction_message(data):
+def check_win_loss(previous_prediction, current_data):
+    """Check if previous prediction was correct"""
+    if not previous_prediction or not current_data:
+        return None
+    
+    try:
+        # For win/loss tracking, we need access to actual results
+        # This requires the API to provide historical outcomes
+        # Since the current API doesn't provide this, we'll skip for now
+        # TODO: Implement when API results endpoint is available
+        return None
+            
+    except Exception as e:
+        logger.error(f"Error checking win/loss: {e}")
+        return None
+
+
+def format_prediction_message(data, previous_result=None):
     """Format prediction data for Telegram message"""
     if not data:
         return "❌ Error: Unable to fetch prediction"
@@ -57,6 +75,13 @@ def format_prediction_message(data):
         pattern = data.get('patternName', 'N/A')
         source = data.get('source', 'N/A')
         
+        # Add win/loss tracking if available
+        result_info = ""
+        if previous_result:
+            result_emoji = "✅" if previous_result['won'] else "❌"
+            result_text = "WON" if previous_result['won'] else "LOST"
+            result_info = f"\n{result_emoji} <b>Previous Result</b>: {result_text} (Issue: {previous_result['issue']})"
+        
         message = f"""
 🎯 <b>WinGo Prediction</b>
 
@@ -67,7 +92,7 @@ def format_prediction_message(data):
 
 🔢 <b>Current Issue</b>: {current_issue}
 ➡️ <b>Next Issue</b>: {next_issue}
-
+{result_info}
 🧬 <b>Pattern</b>: {pattern}
 🤖 <b>Source</b>: {source}
 
@@ -205,7 +230,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def check_and_send_predictions(context: ContextTypes.DEFAULT_TYPE):
     """Check for new predictions and send to subscribed users"""
-    global last_prediction_issue
+    global last_prediction_issue, last_prediction
     
     try:
         prediction_data = get_prediction()
@@ -213,14 +238,21 @@ async def check_and_send_predictions(context: ContextTypes.DEFAULT_TYPE):
             return
         
         current_issue = prediction_data.get('currentIssue')
+        next_issue = prediction_data.get('nextIssue')
         
-        # Check if this is a new prediction
-        if current_issue and current_issue != last_prediction_issue:
-            logger.info(f"New prediction detected: {current_issue}")
-            last_prediction_issue = current_issue
+        # Check if this is a new prediction (based on next issue)
+        # We want to send prediction for the upcoming issue, not current
+        if next_issue and next_issue != last_prediction_issue:
+            logger.info(f"New prediction detected for issue: {next_issue}")
+            last_prediction_issue = next_issue
+            
+            # Check win/loss for previous prediction
+            previous_result = None
+            if last_prediction:
+                previous_result = check_win_loss(last_prediction, prediction_data)
             
             # Send to all subscribed users
-            message = format_prediction_message(prediction_data)
+            message = format_prediction_message(prediction_data, previous_result)
             
             for user_id in subscribed_users.copy():  # Use copy to avoid modification during iteration
                 try:
@@ -234,6 +266,9 @@ async def check_and_send_predictions(context: ContextTypes.DEFAULT_TYPE):
                     logger.error(f"Failed to send to user {user_id}: {e}")
                     # Remove user if they blocked the bot or chat doesn't exist
                     subscribed_users.discard(user_id)
+            
+            # Store this prediction for next win/loss check
+            last_prediction = prediction_data
                     
     except Exception as e:
         logger.error(f"Error in prediction check: {e}")
