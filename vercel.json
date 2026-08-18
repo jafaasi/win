@@ -2,20 +2,6 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "public": true,
-  "rewrites": [
-    {
-      "source": "/api/state",
-      "destination": "http://3.7.65.149:8000/api/state"
-    },
-    {
-      "source": "/api/outcomes",
-      "destination": "http://3.7.65.149:8000/api/outcomes"
-    },
-    {
-      "source": "/api/(.*)",
-      "destination": "http://3.7.65.149:8000/api/$1"
-    }
-  ],
   "headers": [
     {
       "source": "/(.*)",
