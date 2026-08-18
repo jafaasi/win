@@ -60,10 +60,10 @@ async def run_scraper_daemon(max_duration_seconds=18000): # 5 hours per job
                             else:
                                 history = [int(d["number"]) for d in reversed(draws)]
                         
-                        # 3. EVOSEQ Continuous Evolution Loop (Non-blocking worker thread)
+                        # 3. EVOSEQ Continuous Evolution Loop
                         from backend.evoseq_loop import run_evoseq_cycle
                         import json
-                        registry_state = await asyncio.to_thread(run_evoseq_cycle, history, db)
+                        registry_state = run_evoseq_cycle(history, db)
 
                         
                         # 4. Fast Edge Inference (Reads EVOSEQ_Registry)
