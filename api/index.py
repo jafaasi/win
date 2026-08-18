@@ -690,6 +690,7 @@ def compute_state(client_payload=None, init=False):
 
     db_draws = []
     recent_logs = []
+    ai_loaded = {}
 
     # Connect to Supabase for persistent cloud history and lifelong learning
     try:
@@ -712,34 +713,19 @@ def compute_state(client_payload=None, init=False):
         recent_logs = db.query(PredictionLog).filter(PredictionLog.actual_size != None).order_by(PredictionLog.issue_number.desc()).limit(50).all()
         
         # 3. Fetch recent audit logs for targetNum retrieval
-        from backend.database import PredictionAudit
+        from backend.database import PredictionAudit, AIBrainState
         recent_audits = db.query(PredictionAudit).order_by(PredictionAudit.id.desc()).limit(100).all()
         audit_map = {a.sequence_no: a.predicted_digit for a in recent_audits if a.predicted_digit is not None}
         
         # --- NEW: Fetch pre-computed live state from Render EVOSEQ PyTorch Daemon ---
-        from backend.database import AIBrainState
         live_state_record = db.query(AIBrainState).filter(AIBrainState.model_name == "Live_UI_State").order_by(AIBrainState.id.desc()).first()
         if live_state_record and live_state_record.synaptic_weights:
-            ai = json.loads(live_state_record.synaptic_weights)
-            if ai and isinstance(ai, dict):
-                # Only use live state if it corresponds to the current issue we are predicting
-                if str(ai.get("nextIssue")) == str(current_issue):
-                    safe_ai = ai
-                else:
-                    safe_ai = {}
-        
-        # If scraper daemon is lagging, we seamlessly fallback to fast mathematical prior
-        fallback_ai = exploit_all_loopholes(history, current_level=current_level)
-        safe_ai = safe_ai if 'safe_ai' in locals() and safe_ai else {}
-        safe_ai = {**fallback_ai, **safe_ai}
+            temp_ai = json.loads(live_state_record.synaptic_weights)
+            if temp_ai and isinstance(temp_ai, dict):
+                ai_loaded = temp_ai
         db.close()
     except Exception as e:
         print("DB Sync Note:", e)
-        ai = exploit_all_loopholes(history, current_level=current_level)
-
-    if not isinstance(ai, dict) or not ai or 'prediction' not in ai or 'confidence' not in ai:
-        ai = exploit_all_loopholes(history, current_level=current_level)
-
 
     # 1. Determine canonical latest drawn issue from live API draws or DB
     latest_drawn = None
@@ -756,8 +742,13 @@ def compute_state(client_payload=None, init=False):
     next_issue = str(int(latest_drawn) + 1)
     current_issue = latest_drawn
 
+    # Only use live state if it corresponds to the current issue we are predicting
+    if str(ai_loaded.get("nextIssue")) == str(current_issue):
+        safe_ai = ai_loaded
+    else:
+        safe_ai = {}
+
     fallback_ai = exploit_all_loopholes(history, current_level=current_level)
-    safe_ai = ai if isinstance(ai, dict) else {}
     safe_ai = {**fallback_ai, **safe_ai}
 
     raw_conf = float(safe_ai.get("confidence", fallback_ai["confidence"]))
