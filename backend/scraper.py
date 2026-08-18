@@ -16,17 +16,9 @@ from api.index import exploit_all_loopholes
 API_ENDPOINT = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
 
 async def fetch_wingo_draws():
-    url = "https://www.bigsmall.com/api/webapi/GetNoaverageEmerdList"
-    payload = {"pageSize": 100, "pageNo": 1, "typeId": 30, "language": 0, "random": "576c5f76241a4a4e8d35f29e160e90c8"}
-    headers = {
-        "Accept": "application/json, text/plain, */*",
-        "Content-Type": "application/json;charset=UTF-8",
-        "Origin": "https://www.bigsmall.com",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    }
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
-            response = await client.post(url, json=payload, headers=headers)
+            response = await client.get(f"{API_ENDPOINT}?ts={datetime.utcnow().timestamp()}")
             if response.status_code == 200:
                 data = response.json()
                 if "data" in data and "list" in data["data"]:

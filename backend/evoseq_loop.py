@@ -104,7 +104,7 @@ class DeepPyTorchWrapper(BaseModel):
         return np.array(probs)
 
 def run_evoseq_cycle(history, db):
-    if len(history) < 20:
+    if len(history) < 10:
         return None
         
     print(f"=== 🧬 RUNNING EXPLOIT-FOCUSED ADAPTIVE PRNG PIPELINE (n={len(history)}) ===")
