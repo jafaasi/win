@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import PredictionDisplay from './components/PredictionDisplay';
 import HistoryLog from './components/HistoryLog';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://3.7.65.149';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://79e60f2c-d2bb-4370-b2f7-99045fa9eec5.cfargotunnel.com';
 const BACKEND_URL = `${API_BASE_URL.replace(/\/$/, '')}/api/state`;
 const WINGO_API = import.meta.env.VITE_WINGO_API_URL || 'https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json';
 const POLL_INTERVAL_MS = 1000;
