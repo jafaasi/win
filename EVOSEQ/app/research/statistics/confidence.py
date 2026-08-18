@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Sequence, Dict, Any, Callable
+from typing import Sequence, Dict, Any, Callable, Optional
 from ...models.base import SequenceModel
 from ...evaluation.walk_forward import evaluate_model_walk_forward
 
