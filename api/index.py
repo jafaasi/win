@@ -742,8 +742,8 @@ def compute_state(client_payload=None, init=False):
     next_issue = str(int(latest_drawn) + 1)
     current_issue = latest_drawn
 
-    # Only use live state if it corresponds to the current issue we are predicting
-    if str(ai_loaded.get("nextIssue")) == str(current_issue):
+    # Only use live state if it corresponds to the upcoming issue we are predicting
+    if str(ai_loaded.get("nextIssue")) == str(next_issue):
         safe_ai = ai_loaded
     else:
         safe_ai = {}
