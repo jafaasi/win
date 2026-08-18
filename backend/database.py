@@ -12,8 +12,27 @@ except ImportError:
 
 from sqlalchemy.pool import NullPool
 
-# Use cloud DATABASE_URL if provided, else fallback to local SQLite
+# Use cloud DATABASE_URL if provided, else fallback to Supabase or local SQLite
 DATABASE_URL = os.environ.get("DATABASE_URL")
+
+# If no DATABASE_URL env var, try to load from .env file
+if not DATABASE_URL:
+    try:
+        from dotenv import load_dotenv
+        backend_dir = os.path.dirname(os.path.abspath(__file__))
+        env_file = os.path.join(backend_dir, '.env')
+        if os.path.exists(env_file):
+            load_dotenv(env_file)
+            DATABASE_URL = os.environ.get("DATABASE_URL")
+    except:
+        pass
+
+# Hardcoded Supabase URL as fallback for Render (where DATABASE_URL may not be set)
+SUPABASE_DEFAULT = "postgresql://postgres.zyryxnifpduwsulglhdq:JafAasi1517@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres"
+
+if not DATABASE_URL and os.environ.get("RENDER_ENV") == "production":
+    DATABASE_URL = SUPABASE_DEFAULT
+    print("[DB] Using hardcoded Supabase URL for Render production")
 
 if DATABASE_URL:
     DATABASE_URL = DATABASE_URL.strip().strip('"').strip("'").strip()
@@ -33,11 +52,13 @@ if DATABASE_URL:
             "keepalives_count": 5
         }
     )
+    print(f"[DB] Connected to Supabase: {DATABASE_URL[:50]}...")
 
 else:
     # Fallback to local SQLite
     DB_PATH = os.path.join(os.path.dirname(__file__), 'wingo_history.db')
     engine = create_engine(f'sqlite:///{DB_PATH}', connect_args={"check_same_thread": False})
+    print(f"[DB] Using local SQLite: {DB_PATH}")
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
