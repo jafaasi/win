@@ -225,17 +225,20 @@ class AdaptiveHyperparameterTuner:
         if hasattr(mamba, 'temperature'):
             mamba.temperature = params["temperature"]
         
-        # Apply learning rate
+        # Apply learning rate (with error handling for missing optimizers)
         if hasattr(transformer, 'lr'):
             transformer.lr = params["learning_rate"]
-            # Update optimizer
-            for param_group in transformer.optimizer.param_groups:
-                param_group['lr'] = params["learning_rate"]
+            # Update optimizer if it exists
+            if hasattr(transformer, 'optimizer') and transformer.optimizer is not None:
+                for param_group in transformer.optimizer.param_groups:
+                    param_group['lr'] = params["learning_rate"]
         
         if hasattr(mamba, 'lr'):
             mamba.lr = params["learning_rate"]
-            for param_group in mamba.optimizer.param_groups:
-                param_group['lr'] = params["learning_rate"]
+            # Update optimizer if it exists
+            if hasattr(mamba, 'optimizer') and mamba.optimizer is not None:
+                for param_group in mamba.optimizer.param_groups:
+                    param_group['lr'] = params["learning_rate"]
         
         # Apply ensemble weight decay to predictor
         if hasattr(predictor, 'decay_factor'):

@@ -201,8 +201,12 @@ def run_evoseq_cycle(history, db):
     regime_params = adaptive_tuner.optimize_for_regime(current_regime)
     adaptive_tuner.current_params.update(regime_params)
     
-    # Apply parameters to models
-    adaptive_tuner.apply_params_to_models(predictor, _global_brain.transformer, _global_brain.mamba)
+    # Apply parameters to models with error handling
+    try:
+        adaptive_tuner.apply_params_to_models(predictor, _global_brain.transformer, _global_brain.mamba)
+    except Exception as e:
+        print(f"[EVOSEQ] Warning: Could not apply adaptive parameters: {e}")
+        # Continue without adaptive parameter tuning
     
     # Track performance for adaptive tuning
     performance_metrics = {
