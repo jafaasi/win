@@ -73,16 +73,10 @@ class S4SequenceModel(SequenceModel):
         self.lr = lr
         self.temperature = temperature
         
-        # Set device - use MPS for Apple Silicon, CUDA for NVIDIA, CPU as fallback
-        if torch.backends.mps.is_available():
-            self.device = torch.device("mps")
-            print(f"[S4] Using MPS (Apple Silicon GPU)")
-        elif torch.cuda.is_available():
-            self.device = torch.device("cuda")
-            print(f"[S4] Using CUDA (NVIDIA GPU)")
-        else:
-            self.device = torch.device("cpu")
-            print(f"[S4] Using CPU")
+        # Force CPU for cost efficiency on cloud deployments
+        # GPU acceleration provides speed but not accuracy improvements
+        self.device = torch.device("cpu")
+        print(f"[S4] Using CPU (cost-efficient, same intelligence)")
         
         self.net = S4Net(input_size, hidden_size, layers, output_size=10).to(self.device)
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=lr, weight_decay=1e-4)
@@ -262,16 +256,10 @@ class MambaSequenceModel(SequenceModel):
         self.lr = lr
         self.temperature = temperature
         
-        # Set device - use MPS for Apple Silicon, CUDA for NVIDIA, CPU as fallback
-        if torch.backends.mps.is_available():
-            self.device = torch.device("mps")
-            print(f"[Mamba] Using MPS (Apple Silicon GPU)")
-        elif torch.cuda.is_available():
-            self.device = torch.device("cuda")
-            print(f"[Mamba] Using CUDA (NVIDIA GPU)")
-        else:
-            self.device = torch.device("cpu")
-            print(f"[Mamba] Using CPU")
+        # Force CPU for cost efficiency on cloud deployments
+        # GPU acceleration provides speed but not accuracy improvements
+        self.device = torch.device("cpu")
+        print(f"[Mamba] Using CPU (cost-efficient, same intelligence)")
         
         self.net = MambaNet(input_size, hidden_size, layers, output_size=10).to(self.device)
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=lr, weight_decay=1e-4)

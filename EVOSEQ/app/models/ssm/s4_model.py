@@ -127,16 +127,10 @@ class S4DSequenceModel(nn.Module, SequenceModel):
         self.batch_size = batch_size
         self.input_size = input_size
         
-        # Set device - use MPS for Apple Silicon, CUDA for NVIDIA, CPU as fallback
-        if torch.backends.mps.is_available():
-            self.device = torch.device("mps")
-            print(f"[S4DSequenceModel] Using MPS (Apple Silicon GPU)")
-        elif torch.cuda.is_available():
-            self.device = torch.device("cuda")
-            print(f"[S4DSequenceModel] Using CUDA (NVIDIA GPU)")
-        else:
-            self.device = torch.device("cpu")
-            print(f"[S4DSequenceModel] Using CPU")
+        # Force CPU for cost efficiency on cloud deployments
+        # GPU acceleration provides speed but not accuracy improvements
+        self.device = torch.device("cpu")
+        print(f"[S4DSequenceModel] Using CPU (cost-efficient, same intelligence)")
         
         self.input_projection = nn.Linear(input_size, dim).to(self.device)
         self.layers_module = nn.ModuleList([

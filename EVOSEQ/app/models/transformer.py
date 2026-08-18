@@ -96,16 +96,10 @@ class TransformerSequenceModel(SequenceModel):
         self.lr = lr
         self.temperature = temperature
         
-        # Set device - use MPS for Apple Silicon, CUDA for NVIDIA, CPU as fallback
-        if torch.backends.mps.is_available():
-            self.device = torch.device("mps")
-            print(f"[Transformer] Using MPS (Apple Silicon GPU)")
-        elif torch.cuda.is_available():
-            self.device = torch.device("cuda")
-            print(f"[Transformer] Using CUDA (NVIDIA GPU)")
-        else:
-            self.device = torch.device("cpu")
-            print(f"[Transformer] Using CPU")
+        # Force CPU for cost efficiency on cloud deployments
+        # GPU acceleration provides speed but not accuracy improvements
+        self.device = torch.device("cpu")
+        print(f"[Transformer] Using CPU (cost-efficient, same intelligence)")
         
         self.net = CausalTransformer(
             input_size=input_size,
