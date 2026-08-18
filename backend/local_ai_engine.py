@@ -71,8 +71,15 @@ def run_local_engine():
                         print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Completed Draw #{latest_issue} (Num: {history[-1]}) -> 🎯 PREDICTED FOR CURRENT ISSUE #{next_issue}: {ai_result['prediction']} ({ai_result['confidence']}%) | {ai_result['patternName']}")
                         
                         # 4. Sync AI state directly to Supabase as Live_UI_State
-                        db.add(AIBrainState(model_name="Live_UI_State", generation=ai_result["generation"], synaptic_weights=json.dumps(ai_result), updated_at=datetime.utcnow()))
-                        db.commit()
+                        from backend.database import save_ai_brain_state
+                        save_ai_brain_state(
+                            db=db,
+                            model_name="Live_UI_State",
+                            generation=ai_result["generation"],
+                            total_samples=len(history),
+                            weights_json=json.dumps(ai_result),
+                            win_rate=registry_state.get("fitness", 50.0) if registry_state else 50.0
+                        )
                         
                     else:
                         print("Waiting for sufficient history...")
