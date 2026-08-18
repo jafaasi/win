@@ -56,9 +56,11 @@ sudo systemctl status win-telegram
 
 ## Bot Commands
 
-- `/start` - Start the bot and see welcome message
+- `/start` - Start the bot and auto-subscribe to automatic updates
 - `/predict` - Get current AI prediction
 - `/status` - Check bot and API status
+- `/subscribe` - Subscribe to automatic prediction updates
+- `/unsubscribe` - Unsubscribe from automatic updates
 - `/help` - Show help message
 
 ## Architecture
@@ -112,8 +114,19 @@ curl http://localhost:8000/api/state
 ## Features
 
 - Real-time AI predictions
+- **Automatic prediction updates** - subscribers get new predictions automatically
 - Confidence scores
 - Pattern analysis
 - Multiple model ensemble information
 - Status monitoring
 - Issue tracking
+- Mobile-friendly access
+
+## Automatic Updates
+
+The bot automatically checks for new predictions every 30 seconds and sends them to subscribed users:
+
+- **Auto-subscribe**: Users are automatically subscribed when they use `/start`
+- **New predictions**: When a new prediction is generated (detected by issue number change), all subscribers receive it
+- **Unsubscribe**: Users can unsubscribe with `/unsubscribe` command
+- **Reliable**: Failed sends are logged and users are removed if they block the bot

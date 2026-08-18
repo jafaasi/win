@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Telegram Bot for WinGo Predictions
-Provides predictions via Telegram commands
+Provides predictions via Telegram commands and automatic updates
 """
 
 import asyncio
@@ -13,6 +13,11 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 # Configuration
 BOT_TOKEN = "8796895729:AAHC1UiRlAdn2Ha87_mG3RDLwaUZG5Qcr40"
 API_URL = "http://localhost:8000/api/state"
+CHECK_INTERVAL = 30  # Check for new predictions every 30 seconds
+
+# Store for subscribed users and last prediction
+subscribed_users = set()
+last_prediction_issue = None
 
 # Logging setup
 logging.basicConfig(
@@ -76,14 +81,21 @@ def format_prediction_message(data):
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command"""
+    user_id = update.effective_user.id
+    subscribed_users.add(user_id)
+    
     welcome_message = """
 🎰 <b>WinGo Prediction Bot</b>
 
 Welcome! I provide AI-powered predictions for WinGo lottery.
 
+✅ <b>You are now subscribed to automatic prediction updates!</b>
+
 <b>Commands:</b>
 /predict - Get current prediction
 /status - Check bot status
+/subscribe - Subscribe to automatic updates
+/unsubscribe - Unsubscribe from automatic updates
 /help - Show this help message
 
 ⚠️ <b>Disclaimer</b>: Predictions are for entertainment purposes only. Not financial advice.
@@ -146,10 +158,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /start - Start the bot and see welcome message
 /predict - Get current AI prediction
 /status - Check bot and API status
+/subscribe - Subscribe to automatic prediction updates
+/unsubscribe - Unsubscribe from automatic updates
 /help - Show this help message
 
 <b>Features:</b>
 • Real-time AI predictions
+• Automatic updates when new predictions available
 • Confidence scores
 • Pattern analysis
 • Multiple model ensemble
@@ -164,11 +179,64 @@ Statistical analysis and pattern recognition
     await update.message.reply_text(help_message.strip(), parse_mode='HTML')
 
 
+async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /subscribe command"""
+    user_id = update.effective_user.id
+    subscribed_users.add(user_id)
+    await update.message.reply_text("✅ You are now subscribed to automatic prediction updates!")
+
+
+async def unsubscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /unsubscribe command"""
+    user_id = update.effective_user.id
+    if user_id in subscribed_users:
+        subscribed_users.remove(user_id)
+        await update.message.reply_text("❌ You have been unsubscribed from automatic updates.")
+    else:
+        await update.message.reply_text("You are not subscribed to automatic updates.")
+
+
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle errors"""
     logger.error(f"Update {update} caused error {context.error}")
     if update and update.message:
         await update.message.reply_text("❌ An error occurred. Please try again.")
+
+
+async def check_and_send_predictions(context: ContextTypes.DEFAULT_TYPE):
+    """Check for new predictions and send to subscribed users"""
+    global last_prediction_issue
+    
+    try:
+        prediction_data = get_prediction()
+        if not prediction_data:
+            return
+        
+        current_issue = prediction_data.get('currentIssue')
+        
+        # Check if this is a new prediction
+        if current_issue and current_issue != last_prediction_issue:
+            logger.info(f"New prediction detected: {current_issue}")
+            last_prediction_issue = current_issue
+            
+            # Send to all subscribed users
+            message = format_prediction_message(prediction_data)
+            
+            for user_id in subscribed_users.copy():  # Use copy to avoid modification during iteration
+                try:
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=message,
+                        parse_mode='HTML'
+                    )
+                    logger.info(f"Sent prediction to user {user_id}")
+                except Exception as e:
+                    logger.error(f"Failed to send to user {user_id}: {e}")
+                    # Remove user if they blocked the bot or chat doesn't exist
+                    subscribed_users.discard(user_id)
+                    
+    except Exception as e:
+        logger.error(f"Error in prediction check: {e}")
 
 
 def main():
@@ -181,13 +249,29 @@ def main():
     application.add_handler(CommandHandler("predict", predict_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("subscribe", subscribe_command))
+    application.add_handler(CommandHandler("unsubscribe", unsubscribe_command))
     
     # Add error handler
     application.add_error_handler(error_handler)
     
     # Start the bot
     logger.info("Starting WinGo Prediction Bot...")
+    
+    # Start background prediction updater using job queue
+    application.job_queue.run_repeating(
+        check_and_send_predictions,
+        interval=CHECK_INTERVAL,
+        first=10,
+        name="prediction_updater"
+    )
+    
+    # Run the bot
     application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":
