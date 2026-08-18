@@ -2,6 +2,13 @@ import sys
 import os
 import asyncio
 
+# STRICT SINGLE-THREADING FOR RENDER FREE TIER TO PREVENT LIVELOCKS
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 # Force unbuffered output for Render logging
 sys.stdout.reconfigure(line_buffering=True)
 
@@ -30,6 +37,12 @@ def remote_log(msg):
         print(f"Failed to remote log: {e}")
 
 if __name__ == "__main__":
+    # Lower CPU priority to absolute minimum so uvicorn web server can instantly answer health checks
+    try:
+        os.nice(19)
+    except Exception as e:
+        print(f"Note: Could not set nice value: {e}")
+
     msg = "🚀 Starting Isolated Daemon Process for PyTorch Engine..."
     print(msg)
     remote_log(msg)
