@@ -1,18 +1,29 @@
 #!/usr/bin/env python3
 """
-Ultra Intelligence Engine for WinGo 30s
-========================================
-Unified top-level intelligence that replaces the fragmented blending in
-BeastPredictor by orchestrating:
+Ultra Intelligence Engine for WinGo 30s  — v2.0
+=================================================
+Unified top-level intelligence orchestrating 12 sub-models:
 
-  1. ExhaustiveExploitDetector — 11 statistical tests + unanimous engine filter
-  2. HighIntelligencePredictor — CTW, Bayesian streak, BOCPD, rolling calibration
-  3. EVOSEQ ensemble — Transformer + Mamba + statistical models
-  4. Adaptive Hedge/EWA online ensemble weighting
-  5. Decay-weighted Markov transition matrix
-  6. Session-position temporal features
-  7. Honest confidence bands with SKIP signal
-  8. Persisted win/loss streak state
+  1.  HIP CTW            — Variable-order Markov via Context Tree Weighting
+  2.  HIP N-gram         — N-gram blend orders 1-5
+  3.  HIP Streak         — Bayesian Beta-Binomial streak belief
+  4.  HIP Frequency      — Rolling side frequency (75-step EWA)
+  5.  EVOSEQ Ensemble    — Transformer + Mamba + baseline models
+  6.  Decay Markov       — Exponentially decay-weighted transition matrix
+  7.  Session Bias       — Session-position temporal features (6 bins)
+  8.  Exploit Detector   — 11 statistical tests + 4 predictive engines
+  9.  Pattern Intelligence — ACF lag discovery, streak reversal profile,
+                             conditional freq table, digit gap detector
+  10. 3-Level Martingale — Calibrated Martingale-level-aware prediction
+  11. Volatility Regime  — Rolling volatility band model (Big/Small rate)
+  12. Cross-Round Corr   — Multi-lag cross-correlation ensemble
+
+New in v2.0:
+  • 4 new sub-models (9-12 above) added to 12-model Hedge ensemble
+  • Smarter SKIP logic: multi-factor consensus gate, not just cal_single
+  • Hedge eta loaded from daily_learning.py recommendations
+  • PatternIntelligence and 3-Level state persisted/restored from Supabase
+  • DailyLearningScheduler integrated — fires at midnight UTC automatically
 
 Usage:
     from backend.ultra_intelligence import UltraIntelligenceEngine
@@ -43,6 +54,8 @@ from backend.exhaustive_exploit import (
     ngram_next_probs,
 )
 from backend.prediction_intelligence import EvidenceGate
+from backend.pattern_intelligence import PatternIntelligence
+from backend.three_level_winning import ThreeLevelWinningAlgorithm
 
 
 # ============================================================================
@@ -186,6 +199,125 @@ class HedgeEnsemble:
 
 
 # ============================================================================
+# 3.5  Volatility Regime Model
+# ============================================================================
+
+class VolatilityRegimeModel:
+    """Models the rolling Big/Small rate in fast vs slow volatility windows.
+
+    Computes three windows (10, 50, 200 rounds) of the Big-rate and detects
+    momentum / mean-reversion regimes.  Returns a P(Big) adjusted for the
+    current volatility environment.
+
+    Fast window > slow window  → momentum regime  (follow trend)
+    Fast window < slow window  → mean-reversion  (fade trend)
+    """
+
+    def __init__(self, windows: Tuple[int, int, int] = (10, 50, 200)):
+        self.w_fast, self.w_mid, self.w_slow = windows
+
+    def predict_p_big(self, sides: List[int]) -> float:
+        n = len(sides)
+        if n < self.w_fast:
+            return 0.5
+
+        def laplace_rate(window: int) -> float:
+            sl = sides[-min(window, n):]
+            return (sum(sl) + 1.0) / (len(sl) + 2.0)
+
+        r_fast = laplace_rate(self.w_fast)
+        r_mid  = laplace_rate(self.w_mid)
+        r_slow = laplace_rate(self.w_slow)
+
+        # Momentum signal: fast vs slow deviation
+        momentum = r_fast - r_slow
+        # Mean-reversion signal: slow rate pulls back
+        mean_rev = r_slow - r_fast
+
+        # Volatility (std of fast window)
+        fast_sl = np.array(sides[-self.w_fast:], dtype=np.float64)
+        vol = float(fast_sl.std()) if len(fast_sl) >= 3 else 0.5
+
+        # In high-volatility environment follow momentum; low-vol follow slow rate
+        if vol > 0.48:
+            # High volatility: momentum tends to persist briefly
+            p = 0.5 + 0.5 * momentum
+        else:
+            # Low volatility: mean-reversion more likely
+            p = r_slow + 0.3 * mean_rev
+
+        # Shrink toward 0.5 — this is a complementary signal, not a primary one
+        p = 0.5 + 0.55 * (p - 0.5)
+        return float(max(0.02, min(0.98, p)))
+
+
+# ============================================================================
+# 3.6  Cross-Round Correlation Ensemble
+# ============================================================================
+
+class CrossRoundCorrelation:
+    """Multi-lag weighted cross-correlation predictor.
+
+    For lags 1..12 computes the Pearson correlation between the side at
+    position t-lag and the side at position t.  Uses this to build a
+    combined forecast:  P(Big_t) = sigmoid( sum_lag  w_lag * side_{t-lag} )
+    where w_lag = signed ACF at lag (positive = continuation, negative = reversal).
+
+    Weights are re-estimated on a rolling window so they adapt to regime changes.
+    """
+
+    MAX_LAG = 12
+    WINDOW = 500   # rolling window for ACF estimation
+
+    def __init__(self):
+        self._weights: np.ndarray = np.zeros(self.MAX_LAG, dtype=np.float64)
+        self._n_updates: int = 0
+
+    def _refit(self, sides: List[int]) -> None:
+        """Re-estimate lag weights from the last WINDOW observations."""
+        arr = np.array(sides[-self.WINDOW:], dtype=np.float64)
+        n = len(arr)
+        if n < 30:
+            return
+        mu = arr.mean()
+        arr_c = arr - mu
+        var = float((arr_c ** 2).mean()) + 1e-12
+        for lag in range(1, self.MAX_LAG + 1):
+            if lag >= n:
+                self._weights[lag - 1] = 0.0
+                continue
+            acf = float(np.mean(arr_c[lag:] * arr_c[:-lag])) / var
+            # Shrink small autocorrelations to zero (noise guard)
+            threshold = 1.2 / math.sqrt(n)
+            self._weights[lag - 1] = acf if abs(acf) > threshold else 0.0
+        self._n_updates += 1
+
+    def predict_p_big(self, sides: List[int]) -> float:
+        n = len(sides)
+        if n < self.MAX_LAG + 5:
+            return 0.5
+
+        # Re-fit every 50 new observations
+        if self._n_updates == 0 or n % 50 == 0:
+            self._refit(sides)
+
+        # Linear score: sum over lags
+        score = 0.0
+        for lag in range(1, self.MAX_LAG + 1):
+            w = self._weights[lag - 1]
+            if abs(w) < 1e-9 or lag > n:
+                continue
+            # sides[-lag] is 0 or 1; center around 0.5
+            score += w * (sides[-lag] - 0.5)
+
+        # sigmoid → P(Big)
+        p = 1.0 / (1.0 + math.exp(-6.0 * score))
+        # Shrink toward 0.5
+        p = 0.5 + 0.65 * (p - 0.5)
+        return float(max(0.02, min(0.98, p)))
+
+
+# ============================================================================
 # 4. Streak tracker with persistence
 # ============================================================================
 
@@ -274,34 +406,55 @@ def classify_confidence(
     reject_iid: bool,
     engines_agree: int,
     streak: StreakState,
+    pattern_p_big: float = 0.5,
+    model_consensus: float = 0.5,
 ) -> Tuple[str, float, str]:
-    """Classify confidence into honest bands.
+    """Classify confidence into honest bands with multi-factor SKIP logic.
 
     Returns (strike_quality, display_confidence_pct, action).
 
-    Action is one of:
-      - "SKIP"     : no edge, don't bet
-      - "CAUTION"  : weak edge, bet minimum
-      - "FORECAST" : normal edge, bet normally
+    Action:
+      - "SKIP"     : no exploitable edge — do not bet
+      - "CAUTION"  : marginal edge — minimum stake
+      - "FORECAST" : normal edge
       - "STRIKE"   : strong validated edge
+
+    v2: SKIP now requires *multiple* weak signals to trigger, not just a
+    single low cal_single.  A strong pattern signal or model consensus can
+    override a borderline skip.
     """
     skip_thresh = streak.skip_threshold()
 
-    # SKIP: no exploitable edge
-    if cal_single < skip_thresh and not reject_iid:
+    # ── Multi-factor SKIP gate ─────────────────────────────────────────────
+    # Count how many individual factors suggest "no edge"
+    skip_factors = 0
+    if cal_single < skip_thresh:
+        skip_factors += 1
+    if not reject_iid:
+        skip_factors += 1
+    if exploit_score < 0.25:
+        skip_factors += 1
+    if engines_agree <= 1:
+        skip_factors += 1
+    # Pattern signal — if strongly directional it can rescue a borderline skip
+    pattern_strength = abs(pattern_p_big - 0.5)
+    if pattern_strength < 0.03:
+        skip_factors += 1
+    # Model consensus (fraction of 12 models on same side)
+    if model_consensus < 0.55:
+        skip_factors += 1
+
+    # Only SKIP when ≥4 factors simultaneously suggest no edge
+    if skip_factors >= 4:
         conf_pct = round(cal_single * 100, 1)
         return "SKIP", conf_pct, "SKIP"
 
-    if cal_single < skip_thresh and exploit_score < 0.3:
-        conf_pct = round(cal_single * 100, 1)
-        return "SKIP", conf_pct, "SKIP"
-
-    # CAUTION: marginal edge
-    if cal_single < 0.58 or (p_win_in_3 < 0.88 and engines_agree < 3):
+    # ── CAUTION: marginal edge ─────────────────────────────────────────────
+    if cal_single < 0.57 or (p_win_in_3 < 0.87 and engines_agree < 3):
         conf_pct = round(cal_single * 100, 1)
         return "LOW_CONFIDENCE", conf_pct, "CAUTION"
 
-    # Map to confidence bands
+    # ── Confidence bands ───────────────────────────────────────────────────
     if p_win_in_3 >= 0.985 and cal_single >= 0.65 and engines_agree >= 4:
         strike = "ULTIMATE_CONVICTION"
         action = "STRIKE"
@@ -318,7 +471,18 @@ def classify_confidence(
         strike = "CONSERVATIVE"
         action = "FORECAST"
 
-    # Loss-streak dampener: downgrade conviction after 3+ losses
+    # Boost: if pattern and exploit both confirm, upgrade one level
+    if pattern_strength >= 0.07 and exploit_score >= 0.50 and reject_iid:
+        upgrades = {
+            "CONSERVATIVE": "MODERATE_CONVICTION",
+            "MODERATE_CONVICTION": "HIGH_CONVICTION",
+            "HIGH_CONVICTION": "BEAST_CONVICTION",
+        }
+        strike = upgrades.get(strike, strike)
+        if action == "FORECAST" and strike in ("BEAST_CONVICTION",):
+            action = "STRIKE"
+
+    # Loss-streak dampener: downgrade after 3+ losses
     if streak.loss_streak >= 3 and strike in ("ULTIMATE_CONVICTION", "BEAST_CONVICTION"):
         strike = "HIGH_CONVICTION"
         action = "FORECAST"
@@ -334,34 +498,44 @@ def classify_confidence(
 # ============================================================================
 
 class UltraIntelligenceEngine:
-    """Unified intelligence engine for WinGo 30s predictions.
+    """Unified intelligence engine for WinGo 30s predictions — v2.0.
 
-    Combines all sub-engines through a clean, regret-minimizing ensemble
-    with exploit gating and honest confidence bands.
+    12-model Hedge ensemble with evolving daily learning, 3-level Martingale
+    awareness, pattern memory, volatility regime and cross-round correlation.
     """
 
-    # Model names for the Hedge ensemble
+    # Model names for the 12-model Hedge ensemble
     MODEL_NAMES = [
-        "hip_ctw",          # 0: HIP CTW variable-order Markov
-        "hip_ngram",        # 1: HIP n-gram (orders 1-5)
-        "hip_streak",       # 2: HIP Bayesian streak
-        "hip_frequency",    # 3: HIP side frequency
-        "evoseq_ensemble",  # 4: Full EVOSEQ (Transformer + Mamba + baseline)
-        "decay_markov",     # 5: Decay-weighted transition matrix
-        "session_bias",     # 6: Session-position temporal bias
-        "exploit_detector", # 7: ExhaustiveExploitDetector blended prediction
+        "hip_ctw",            # 0: HIP CTW variable-order Markov
+        "hip_ngram",          # 1: HIP n-gram (orders 1-5)
+        "hip_streak",         # 2: HIP Bayesian streak
+        "hip_frequency",      # 3: HIP side frequency
+        "evoseq_ensemble",    # 4: Full EVOSEQ (Transformer + Mamba + baseline)
+        "decay_markov",       # 5: Decay-weighted transition matrix
+        "session_bias",       # 6: Session-position temporal bias
+        "exploit_detector",   # 7: ExhaustiveExploitDetector blended prediction
+        "pattern_intelligence", # 8: ACF + streak-reversal + cond-freq + gap
+        "three_level_ml",     # 9: Martingale-level-calibrated ML prediction
+        "volatility_regime",  # 10: Rolling volatility band momentum/mean-rev
+        "cross_round_corr",   # 11: Multi-lag cross-round correlation
     ]
 
     def __init__(self, max_history: int = 50000):
-        # Sub-engines
+        # Core sub-engines
         self.hip = HighIntelligencePredictor(max_history=max_history)
         self.exploit = ExhaustiveExploitDetector(history_limit=5000, permutation_rounds=200)
         self.evidence_gate = EvidenceGate()
         self.decay_markov = DecayMarkov(decay=0.995)
         self.session_features = SessionPositionFeatures(session_length=120, n_bins=6)
 
-        # Hedge ensemble: 8 models
-        self.hedge = HedgeEnsemble(n_models=8, eta=0.10)
+        # New v2 sub-engines
+        self.pattern_intel = PatternIntelligence()
+        self.three_level = ThreeLevelWinningAlgorithm()
+        self.volatility_regime = VolatilityRegimeModel()
+        self.cross_round = CrossRoundCorrelation()
+
+        # Hedge ensemble: 12 models
+        self.hedge = HedgeEnsemble(n_models=12, eta=0.10)
 
         # Streak tracking
         self.streak = StreakState()
@@ -371,12 +545,17 @@ class UltraIntelligenceEngine:
         self._last_prediction_side: Optional[str] = None
         self._last_model_probs: Optional[np.ndarray] = None
         self._initialized_history = False
+        self._last_sides: List[int] = []
+
+        # Daily learning scheduler (started in load_streak or on first predict)
+        self._daily_scheduler_started = False
 
     # ---- History initialization (idempotent) --------------------------------
 
     def _ensure_history(self, history: List[int]) -> None:
         """Feed history into sub-engines that need it."""
         int_history = [int(x) for x in history]
+        sides = [1 if d >= 5 else 0 for d in int_history]
 
         # HIP: feed only new observations
         if len(self.hip.history) < len(int_history):
@@ -387,7 +566,13 @@ class UltraIntelligenceEngine:
         if not self._initialized_history and len(int_history) > 1:
             self.decay_markov.update_sequence(int_history)
             self.session_features.observe_sequence(int_history[-500:])
+            # PatternIntelligence: full update on init
+            self.pattern_intel.update(int_history)
+            # CrossRoundCorrelation: refit on init
+            self.cross_round._refit(sides)
             self._initialized_history = True
+
+        self._last_sides = sides
 
     # ---- Reward / feedback from resolved outcomes ----------------------------
 
@@ -410,6 +595,13 @@ class UltraIntelligenceEngine:
         # Update session features
         self.session_features.observe(actual_digit)
 
+        # Update pattern intelligence win tracker
+        self.pattern_intel.reward(actual_digit)
+
+        # Update 3-level Martingale outcome
+        if issue_closed and self.three_level.state.last_predicted_side:
+            self.three_level.record_outcome(issue_closed, actual_side, db=None)
+
         # Update exploit detector calibration
         if self._last_model_probs is not None:
             p_big = float(self._last_model_probs[4])  # EVOSEQ ensemble p_big
@@ -429,7 +621,7 @@ class UltraIntelligenceEngine:
     # ---- Persistence --------------------------------------------------------
 
     def save_streak(self, db) -> None:
-        """Persist streak state to database."""
+        """Persist streak and sub-engine states to database."""
         from backend.database import save_ai_brain_state
         save_ai_brain_state(
             db=db,
@@ -439,10 +631,23 @@ class UltraIntelligenceEngine:
             weights_json=json.dumps(self.streak.to_dict()),
             win_rate=self.streak.session_win_rate * 100,
         )
+        # Periodically persist PatternIntelligence (every 100 games)
+        if self.streak.total_games % 100 == 0:
+            try:
+                self.pattern_intel.save_state(db)
+            except Exception:
+                pass
+        # Persist 3-Level state
+        try:
+            self.three_level.save_state(db)
+        except Exception:
+            pass
 
     def load_streak(self, db) -> None:
-        """Load persisted streak state from database."""
+        """Load persisted streak and all sub-engine states from database."""
         from backend.database import load_ai_brain_state
+
+        # Streak
         brain = load_ai_brain_state(db, model_name="Ultra_Streak_State")
         if brain and brain.synaptic_weights:
             try:
@@ -452,6 +657,40 @@ class UltraIntelligenceEngine:
                       f"| Session {self.streak.session_win_rate*100:.1f}%")
             except Exception as e:
                 print(f"[ULTRA] Could not load streak: {e}")
+
+        # PatternIntelligence
+        try:
+            self.pattern_intel.load_state(db)
+        except Exception as e:
+            print(f"[ULTRA] PatternIntelligence load failed: {e}")
+
+        # 3-Level Martingale
+        try:
+            self.three_level.load_state(db)
+        except Exception as e:
+            print(f"[ULTRA] 3-Level load failed: {e}")
+
+        # Hedge eta from daily learning recommendation
+        try:
+            eta_brain = load_ai_brain_state(db, model_name="Ensemble_Hyperparams")
+            if eta_brain and eta_brain.synaptic_weights:
+                hp = json.loads(eta_brain.synaptic_weights)
+                eta = float(hp.get("hedge_eta", 0.10))
+                self.hedge.eta = eta
+                print(f"[ULTRA] Loaded hedge eta={eta:.4f} from daily learning")
+        except Exception as e:
+            print(f"[ULTRA] Could not load hedge eta: {e}")
+
+        # Start daily learning scheduler
+        if not self._daily_scheduler_started:
+            try:
+                from backend.daily_learning import DailyLearningScheduler
+                sched = DailyLearningScheduler()
+                sched.start()
+                self._daily_scheduler_started = True
+                print("[ULTRA] DailyLearningScheduler started")
+            except Exception as e:
+                print(f"[ULTRA] DailyLearningScheduler start failed: {e}")
 
     # ---- Main prediction ----------------------------------------------------
 
@@ -478,44 +717,87 @@ class UltraIntelligenceEngine:
         self._ensure_history(int_history)
 
         # ====================================================================
-        # STAGE 1: Collect predictions from all 8 sub-models
+        # STAGE 1: Collect predictions from all 12 sub-models
         # ====================================================================
 
-        # --- HIP sub-models ---
+        # --- HIP sub-models (0-3) ---
         hip_result = self.hip.predict()
         hip_ctw_p_big = float(hip_result.digit_distribution[5:].sum())
-        # For ngram/streak/freq, we extract from HIP's internal weights
         hip_ngram_p_big = max(0.01, min(0.99, 0.5 + (hip_result.probability_big - 0.5) *
                                         float(hip_result.markov_weight) / max(0.01, float(hip_result.ctw_weight))))
         streak_p_big_val, _ = self.hip._streak_side_probs()
         freq_p_big_val, _ = self.hip._side_frequency_probs(window=75)
 
-        # --- EVOSEQ ensemble ---
+        # --- EVOSEQ ensemble (4) ---
         evoseq_p_big = float(li["probability_big"])
 
-        # --- Decay Markov ---
+        # --- Decay Markov (5) ---
         last_digit = int_history[-1] if int_history else 0
         decay_p_big, _ = self.decay_markov.predict_side_proba(last_digit)
 
-        # --- Session-position bias ---
+        # --- Session-position bias (6) ---
         session_p_big, session_weight, session_bin = self.session_features.current_bin_bias()
 
-        # --- Exploit detector ---
+        # --- Exploit detector (7) ---
         exploit_report = self.exploit.analyse(int_history[-5000:])
         exploit_p_big = float(exploit_report.tests.get("blended_p_big", 0.5))
 
-        # Collect all model P(Big) into array
+        # --- Pattern Intelligence (8) ---
+        sides = [1 if d >= 5 else 0 for d in int_history]
+        try:
+            self.pattern_intel.update(int_history)
+            pattern_pred = self.pattern_intel.predict(int_history)
+            pattern_p_big = float(pattern_pred.p_big)
+        except Exception as _pe:
+            pattern_p_big = 0.5
+            pattern_pred = None
+
+        # --- 3-Level Martingale ML (9) ---
+        try:
+            three_level_result = self.three_level.predict(int_history, db=db)
+            if three_level_result:
+                tl_side = three_level_result["prediction"]
+                tl_conf = three_level_result["confidence"] / 100.0
+                three_level_p_big = tl_conf if tl_side == "Big" else (1.0 - tl_conf)
+            else:
+                three_level_p_big = 0.5
+                three_level_result = {}
+        except Exception as _tl:
+            three_level_p_big = 0.5
+            three_level_result = {}
+
+        # --- Volatility Regime (10) ---
+        try:
+            volatility_p_big = self.volatility_regime.predict_p_big(sides)
+        except Exception:
+            volatility_p_big = 0.5
+
+        # --- Cross-Round Correlation (11) ---
+        try:
+            cross_round_p_big = self.cross_round.predict_p_big(sides)
+        except Exception:
+            cross_round_p_big = 0.5
+
+        # Collect all 12 model P(Big) values
         model_p_big = np.array([
-            hip_ctw_p_big,      # 0: hip_ctw
-            hip_ngram_p_big,    # 1: hip_ngram
-            streak_p_big_val,   # 2: hip_streak
-            freq_p_big_val,     # 3: hip_frequency
-            evoseq_p_big,       # 4: evoseq_ensemble
-            decay_p_big,        # 5: decay_markov
-            session_p_big,      # 6: session_bias
-            exploit_p_big,      # 7: exploit_detector
+            hip_ctw_p_big,        # 0
+            hip_ngram_p_big,      # 1
+            streak_p_big_val,     # 2
+            freq_p_big_val,       # 3
+            evoseq_p_big,         # 4
+            decay_p_big,          # 5
+            session_p_big,        # 6
+            exploit_p_big,        # 7
+            pattern_p_big,        # 8  NEW
+            three_level_p_big,    # 9  NEW
+            volatility_p_big,     # 10 NEW
+            cross_round_p_big,    # 11 NEW
         ], dtype=np.float64)
         model_p_big = np.clip(model_p_big, 0.01, 0.99)
+
+        # Compute consensus fraction (how many models agree with majority)
+        big_votes = float(np.sum(model_p_big >= 0.5))
+        model_consensus = max(big_votes, 12 - big_votes) / 12.0
 
         # Store for later reward update
         self._last_model_probs = model_p_big.copy()
@@ -595,6 +877,8 @@ class UltraIntelligenceEngine:
             reject_iid=exploit_report.reject_iid,
             engines_agree=exploit_report.engines_agree,
             streak=self.streak,
+            pattern_p_big=pattern_p_big,
+            model_consensus=model_consensus,
         )
 
         # ====================================================================
@@ -663,10 +947,12 @@ class UltraIntelligenceEngine:
             f"Exploit: {exploit_report.exploit_score:.2f}",
             f"IID-reject: {'Y' if exploit_report.reject_iid else 'N'}",
             f"Agree: {exploit_report.engines_agree}/4",
+            f"Consensus: {model_consensus:.0%}",
             f"Streak: W{self.streak.win_streak}/L{self.streak.loss_streak}",
             f"Session: {self.streak.session_win_rate*100:.0f}%",
+            f"3Lvl: L{three_level_result.get('level', 1)}",
         ]
-        loophole_insight = "Ultra v1.0 | " + " | ".join(insight_parts)
+        loophole_insight = "Ultra v2.0 | " + " | ".join(insight_parts)
 
         # Append evidence trail
         loophole_insight += (
@@ -682,7 +968,7 @@ class UltraIntelligenceEngine:
             "hedgeNum": hedgeNum,
             "probability_big": round(blended_p_big, 4),
             "probability_small": round(blended_p_small, 4),
-            "patternName": f"🧠 Ultra v1.0 {drift_level}",
+            "patternName": f"🧠 Ultra v2.0 {drift_level}",
             "loopholeInsight": loophole_insight,
             "strikeQuality": strike_quality,
             "action": action,
@@ -698,6 +984,8 @@ class UltraIntelligenceEngine:
             "enginesAgree": exploit_report.engines_agree,
             "unanimousBig": exploit_report.unanimous_big,
             "unanimousSmall": exploit_report.unanimous_small,
+            # Model consensus
+            "modelConsensus": round(model_consensus, 3),
             # Scoring & diagnostics
             "predictiveScore": round(dominant_prob, 3),
             "calibrationQuality": round(float(registry_state.get("calibration_quality", 0.92)), 3),
@@ -714,22 +1002,46 @@ class UltraIntelligenceEngine:
             "modelsTested": int(registry_state.get("models_tested", 1)),
             "activeChallengers": int(registry_state.get("active_challengers", 1)),
             "retiredModels": int(registry_state.get("retired_models", 0)),
-            # Ensemble weights
+            # Ensemble weights (12-model)
             "ensembleWeights": self.hedge.get_weights_dict(self.MODEL_NAMES),
             "familyWeights": {
-                "hip_statistical": round(sum(self.hedge.weights[:4]) / self.hedge.weights.sum(), 3),
+                "hip_statistical": round(float(self.hedge.weights[:4].sum()) / self.hedge.weights.sum(), 3),
                 "evoseq_deep": round(float(self.hedge.weights[4]) / self.hedge.weights.sum(), 3),
                 "decay_markov": round(float(self.hedge.weights[5]) / self.hedge.weights.sum(), 3),
                 "session_temporal": round(float(self.hedge.weights[6]) / self.hedge.weights.sum(), 3),
                 "exploit_statistical": round(float(self.hedge.weights[7]) / self.hedge.weights.sum(), 3),
+                "pattern_intelligence": round(float(self.hedge.weights[8]) / self.hedge.weights.sum(), 3),
+                "three_level_ml": round(float(self.hedge.weights[9]) / self.hedge.weights.sum(), 3),
+                "volatility_regime": round(float(self.hedge.weights[10]) / self.hedge.weights.sum(), 3),
+                "cross_round_corr": round(float(self.hedge.weights[11]) / self.hedge.weights.sum(), 3),
             },
             # Streak / scorecard
             "scorecard": scorecard,
-            # Martingale hint
+            # 3-Level Martingale status
+            "martingaleLevel": three_level_result.get("level", 1),
+            "martingaleLevelLabel": three_level_result.get("level_label", "🟢 CONSERVATIVE"),
+            "martingaleStake": three_level_result.get("stake_multiplier", 1.0),
+            "martingaleLossStreak": self.three_level.state.loss_streak,
+            "martingaleLevelWinRates": self.three_level.state.level_win_rate,
+            # Martingale hint (backward compat)
             "martingale3Hint": {
                 "pWinIn3": round(p_win_in_3, 4),
                 "pCorrectSingle": round(cal_single, 4),
                 "strike": strike_quality,
+                "level": three_level_result.get("level", 1),
+                "stake_multiplier": three_level_result.get("stake_multiplier", 1.0),
+            },
+            # Pattern intelligence diagnostics
+            "patternSignificantLags": (
+                [{"lag": l, "strength": round(s, 4)} for l, s in pattern_pred.significant_lags]
+                if pattern_pred else []
+            ),
+            "patternCurrentStreak": pattern_pred.current_streak if pattern_pred else 0,
+            "patternReversalProb": round(pattern_pred.p_reversal_at_streak, 4) if pattern_pred else 0.5,
+            # Per-model P(Big) vector
+            "modelPBigVector": {
+                name: round(float(model_p_big[i]), 4)
+                for i, name in enumerate(self.MODEL_NAMES)
             },
             # Evidence
             "evidence": evidence,

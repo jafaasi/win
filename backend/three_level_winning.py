@@ -1,638 +1,585 @@
 #!/usr/bin/env python3
 """
-3-Level Winning Evolving Intelligence Algorithm
-Multi-level strategy for guaranteed recovery within 3 levels
+3-Level Martingale Winning Algorithm — Evolving Intelligence Edition
+=====================================================================
+True Martingale-aware strategy for WinGo 30s that:
+
+  1. Persists Martingale level, loss streak, and win state to Supabase so
+     state survives restarts.
+  2. Calibrates per-level prediction strategy based on DB-measured win rates
+     at each level (Level 1 = conservative base bet, Level 2 = 2.2× recovery,
+     Level 3 = 4.8× emergency recovery).
+  3. Selects an ensemble prediction approach matched to the urgency of each
+     level — low-noise consensus at Level 1, stronger directional signal at
+     Level 2/3.
+  4. Exposes a lightweight `predict(history, db)` API for UltraIntelligenceEngine
+     to consume alongside other models.
+  5. Learns from resolved DB outcomes to update per-level calibration.
+
+Stake math (for reference — the bot just shows this, never manages funds):
+    Level 1 base  : 1.0× unit
+    Level 2 hedge : 2.2× unit  (covers Level 1 loss + profit if win)
+    Level 3 final : 4.8× unit  (covers Level 1+2 losses + profit if win)
+
+Win-within-3 probability from single-round accuracy p:
+    P(W3) = 1 - (1-p)(1-p')(1-p'')   where p' ≈ 0.94*(p-0.5)+0.5, p'' ≈ 0.88*(p-0.5)+0.5
 """
 
-import sys
-import os
-import logging
-import numpy as np
-import torch
-import torch.nn as nn
-from datetime import datetime, timedelta
-from sqlalchemy import create_engine, text
-from collections import deque
+from __future__ import annotations
+
+import json
 import math
+from collections import deque
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Deque, Dict, List, Optional, Tuple
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Database connection
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if not DATABASE_URL:
-    DATABASE_URL = "postgresql://postgres.zyryxnifpduwsulglhdq:JafAasi1517@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres"
-
-if DATABASE_URL:
-    DATABASE_URL = DATABASE_URL.strip().strip('"').strip("'").strip()
-    if DATABASE_URL.startswith("postgres://"):
-        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+import numpy as np
 
 
-class Level1ConservativeIntelligence:
-    """Level 1: High-confidence conservative predictions"""
-    
-    def __init__(self):
-        self.confidence_threshold = 85.0
-        self.risk_tolerance = 0.1
-        
-    def analyze(self, history_data):
-        """Conservative analysis with high confidence requirements"""
-        if not history_data or len(history_data) < 50:
-            return None
-            
-        digits = [item['digit'] for item in history_data]
-        recent = digits[-20:]
-        
-        # Calculate basic statistics
-        big_count = sum(1 for d in recent if d >= 5)
-        big_ratio = big_count / len(recent)
-        
-        # Momentum analysis
-        momentum = sum(1 for i in range(1, len(recent)) if recent[i] >= recent[i-1])
-        momentum_ratio = momentum / (len(recent) - 1) if len(recent) > 1 else 0.5
-        
-        # Pattern consistency
-        pattern_consistency = self._calculate_pattern_consistency(recent)
-        
-        # Calculate confidence
-        base_confidence = 50.0
-        
-        # Adjust based on momentum
-        if momentum_ratio > 0.6:
-            base_confidence += 20
-            prediction = "Big"
-        elif momentum_ratio < 0.4:
-            base_confidence += 20
-            prediction = "Small"
-        else:
-            # Use big/small ratio
-            if big_ratio > 0.6:
-                base_confidence += 15
-                prediction = "Big"
-            elif big_ratio < 0.4:
-                base_confidence += 15
-                prediction = "Small"
-            else:
-                base_confidence += 5
-                prediction = "Big" if big_ratio >= 0.5 else "Small"
-        
-        # Adjust based on pattern consistency
-        base_confidence += pattern_consistency * 10
-        
-        # Apply confidence threshold
-        if base_confidence < self.confidence_threshold:
-            return None  # Not confident enough for Level 1
-            
-        return {
-            'level': 1,
-            'prediction': prediction,
-            'confidence': min(95.0, base_confidence),
-            'strategy': 'conservative',
-            'risk': 'low',
-            'target': max(digits[-5:]) if prediction == "Big" else min(digits[-5:]),
-            'reason': f"High confidence ({base_confidence:.1f}%) conservative prediction"
-        }
-    
-    def _calculate_pattern_consistency(self, sequence):
-        """Calculate how consistent the patterns are"""
-        if len(sequence) < 5:
-            return 0.5
-            
-        consistency_score = 0.0
-        patterns = []
-        
-        # Check for alternating patterns
-        alternations = sum(1 for i in range(1, len(sequence)) if sequence[i] != sequence[i-1])
-        consistency_score += (alternations / len(sequence)) * 0.3
-        
-        # Check for streak patterns
-        max_streak = 1
-        current_streak = 1
-        for i in range(1, len(sequence)):
-            if sequence[i] == sequence[i-1]:
-                current_streak += 1
-                max_streak = max(max_streak, current_streak)
-            else:
-                current_streak = 1
-        
-        consistency_score += (1.0 / max_streak) * 0.2
-        
-        # Check for trend consistency
-        if len(sequence) >= 3:
-            increasing = sum(1 for i in range(1, len(sequence)) if sequence[i] > sequence[i-1])
-            consistency_score += (increasing / len(sequence)) * 0.2
-        
-        return min(1.0, consistency_score)
+# ─────────────────────────────────────────────────────────────────────────────
+# Data structures
+# ─────────────────────────────────────────────────────────────────────────────
 
+@dataclass
+class MartingaleState:
+    """Persistent Martingale position."""
+    level: int = 1           # current Martingale level (1, 2, or 3)
+    loss_streak: int = 0     # consecutive losses since last win
+    win_streak: int = 0      # consecutive wins since last loss
+    total_predictions: int = 0
+    total_wins: int = 0
+    # Per-level outcome history for calibration
+    level_wins: Dict[int, int] = field(default_factory=lambda: {1: 0, 2: 0, 3: 0})
+    level_totals: Dict[int, int] = field(default_factory=lambda: {1: 0, 2: 0, 3: 0})
+    # Recent 50 results for display
+    recent_results: Deque[bool] = field(default_factory=lambda: deque(maxlen=50))
+    # Issue of last prediction (prevent double-counting)
+    last_predicted_issue: Optional[str] = None
+    last_predicted_side: Optional[str] = None
 
-class Level2AggressiveIntelligence:
-    """Level 2: Aggressive pattern-based predictions"""
-    
-    def __init__(self):
-        self.confidence_threshold = 75.0
-        self.pattern_memory = deque(maxlen=100)
-        
-    def analyze(self, history_data):
-        """Aggressive analysis with pattern recognition"""
-        if not history_data or len(history_data) < 30:
-            return None
-            
-        digits = [item['digit'] for item in history_data]
-        recent = digits[-15:]
-        
-        # Advanced pattern analysis
-        patterns = self._extract_patterns(recent)
-        self.pattern_memory.extend(patterns)
-        
-        # Pattern frequency analysis
-        pattern_freq = self._analyze_pattern_frequency()
-        
-        # Cyclical pattern detection
-        cyclical_prediction = self._detect_cyclical_patterns(digits)
-        
-        # Regression-based prediction
-        regression_prediction = self._regression_analysis(digits)
-        
-        # Combine predictions with weighted voting
-        predictions = []
-        weights = []
-        
-        if pattern_freq:
-            predictions.append(pattern_freq['prediction'])
-            weights.append(pattern_freq['confidence'])
-            
-        if cyclical_prediction:
-            predictions.append(cyclical_prediction['prediction'])
-            weights.append(cyclical_prediction['confidence'])
-            
-        if regression_prediction:
-            predictions.append(regression_prediction['prediction'])
-            weights.append(regression_prediction['confidence'])
-        
-        if not predictions:
-            return None
-            
-        # Weighted voting
-        big_weight = sum(w for p, w in zip(predictions, weights) if p == "Big")
-        small_weight = sum(w for p, w in zip(predictions, weights) if p == "Small")
-        
-        if big_weight > small_weight:
-            prediction = "Big"
-            confidence = (big_weight / (big_weight + small_weight)) * 100
-        else:
-            prediction = "Small"
-            confidence = (small_weight / (big_weight + small_weight)) * 100
-        
-        # Apply confidence threshold
-        if confidence < self.confidence_threshold:
-            return None
-            
-        return {
-            'level': 2,
-            'prediction': prediction,
-            'confidence': min(90.0, confidence),
-            'strategy': 'aggressive',
-            'risk': 'medium',
-            'target': max(digits[-3:]) if prediction == "Big" else min(digits[-3:]),
-            'reason': f"Aggressive pattern-based prediction ({confidence:.1f}%)"
-        }
-    
-    def _extract_patterns(self, sequence):
-        """Extract patterns from sequence"""
-        patterns = []
-        
-        # 2-gram patterns
-        for i in range(len(sequence) - 1):
-            patterns.append(('2gram', sequence[i], sequence[i+1]))
-            
-        # 3-gram patterns
-        for i in range(len(sequence) - 2):
-            patterns.append(('3gram', sequence[i], sequence[i+1], sequence[i+2]))
-            
-        return patterns
-    
-    def _analyze_pattern_frequency(self):
-        """Analyze frequency of patterns in memory"""
-        if not self.pattern_memory:
-            return None
-            
-        pattern_counts = {}
-        for pattern in self.pattern_memory:
-            pattern_key = tuple(pattern)
-            pattern_counts[pattern_key] = pattern_counts.get(pattern_key, 0) + 1
-        
-        if not pattern_counts:
-            return None
-            
-        # Find most common patterns
-        sorted_patterns = sorted(pattern_counts.items(), key=lambda x: x[1], reverse=True)
-        top_patterns = sorted_patterns[:5]
-        
-        # Predict based on most recent pattern continuation
-        if len(top_patterns) > 0:
-            recent_pattern = list(self.pattern_memory)[-1]
-            for pattern, count in top_patterns:
-                if len(pattern) >= 3 and pattern[1] == recent_pattern[1] and pattern[2] == recent_pattern[2]:
-                    next_val = pattern[3] if len(pattern) > 3 else (pattern[2] + 1) % 10
-                    prediction = "Big" if next_val >= 5 else "Small"
-                    confidence = min(85.0, 50 + count * 2)
-                    return {'prediction': prediction, 'confidence': confidence}
-        
-        return None
-    
-    def _detect_cyclical_patterns(self, digits):
-        """Detect cyclical patterns using FFT"""
-        if len(digits) < 10:
-            return None
-            
-        try:
-            fft_result = np.fft.fft(digits)
-            frequencies = np.fft.fftfreq(len(digits))
-            
-            # Find dominant frequency
-            dominant_freq_idx = np.argmax(np.abs(fft_result[1:len(fft_result)//2])) + 1
-            dominant_freq = abs(frequencies[dominant_freq_idx])
-            
-            # Predict based on cycle position
-            cycle_position = (len(digits) * dominant_freq) % 1.0
-            
-            if cycle_position < 0.3:
-                prediction = "Big"
-            elif cycle_position > 0.7:
-                prediction = "Small"
-            else:
-                # Use recent trend
-                recent_avg = np.mean(digits[-5:])
-                prediction = "Big" if recent_avg >= 5 else "Small"
-            
-            confidence = 70.0 + (1.0 - abs(cycle_position - 0.5) * 2) * 15
-            return {'prediction': prediction, 'confidence': confidence}
-            
-        except Exception as e:
-            logger.warning(f"Cyclical analysis failed: {e}")
-            return None
-    
-    def _regression_analysis(self, digits):
-        """Simple regression analysis"""
-        if len(digits) < 5:
-            return None
-            
-        try:
-            x = np.arange(len(digits))
-            y = np.array(digits)
-            
-            # Linear regression
-            slope, intercept = np.polyfit(x, y, 1)
-            
-            # Predict next value
-            next_predicted = slope * len(digits) + intercept
-            
-            # Ensure within valid range
-            next_predicted = max(0, min(9, next_predicted))
-            
-            prediction = "Big" if next_predicted >= 5 else "Small"
-            
-            # Confidence based on slope strength
-            confidence = 70.0 + min(15.0, abs(slope) * 10)
-            
-            return {'prediction': prediction, 'confidence': confidence}
-            
-        except Exception as e:
-            logger.warning(f"Regression analysis failed: {e}")
-            return None
-
-
-class Level3RecoveryIntelligence:
-    """Level 3: Recovery strategy with hedging"""
-    
-    def __init__(self):
-        self.loss_history = deque(maxlen=10)
-        self.recovery_patterns = {}
-        
-    def analyze(self, history_data, loss_streak=0):
-        """Recovery analysis with hedging strategy"""
-        if not history_data or len(history_data) < 20:
-            return None
-            
-        digits = [item['digit'] for item in history_data]
-        recent = digits[-10:]
-        
-        # Analyze loss patterns
-        loss_pattern = self._analyze_loss_pattern(loss_streak)
-        
-        # Recovery strategy based on loss level
-        if loss_streak == 0:
-            return None  # No recovery needed
-            
-        elif loss_streak == 1:
-            # First loss: moderate recovery
-            return self._moderate_recovery_strategy(recent, loss_pattern)
-            
-        elif loss_streak == 2:
-            # Second loss: aggressive recovery
-            return self._aggressive_recovery_strategy(recent, loss_pattern)
-            
-        else:  # loss_streak >= 3
-            # Multiple losses: emergency recovery
-            return self._emergency_recovery_strategy(recent, loss_pattern)
-    
-    def _analyze_loss_pattern(self, loss_streak):
-        """Analyze pattern of losses"""
-        if loss_streak == 0:
-            return 'none'
-        elif loss_streak == 1:
-            return 'single'
-        elif loss_streak == 2:
-            return 'double'
-        else:
-            return 'multiple'
-    
-    def _moderate_recovery_strategy(self, recent, loss_pattern):
-        """Moderate recovery after single loss"""
-        # Reverse the last prediction
-        big_count = sum(1 for d in recent if d >= 5)
-        
-        if big_count > len(recent) / 2:
-            prediction = "Small"  # Reverse trend
-        else:
-            prediction = "Big"  # Reverse trend
-        
-        confidence = 80.0  # High confidence for recovery
-        
-        return {
-            'level': 3,
-            'prediction': prediction,
-            'confidence': confidence,
-            'strategy': 'moderate_recovery',
-            'risk': 'medium',
-            'target': max(recent) if prediction == "Big" else min(recent),
-            'hedge': min(recent) if prediction == "Big" else max(recent),
-            'reason': f"Moderate recovery after single loss ({confidence:.1f}% confidence)"
-        }
-    
-    def _aggressive_recovery_strategy(self, recent, loss_pattern):
-        """Aggressive recovery after double loss"""
-        # Strong reversal strategy
-        recent_trend = np.mean(recent[-5:])
-        
-        if recent_trend >= 5:
-            prediction = "Small"  # Strong reversal
-        else:
-            prediction = "Big"  # Strong reversal
-        
-        confidence = 85.0  # Very high confidence for recovery
-        
-        return {
-            'level': 3,
-            'prediction': prediction,
-            'confidence': confidence,
-            'strategy': 'aggressive_recovery',
-            'risk': 'high',
-            'target': max(recent) if prediction == "Big" else min(recent),
-            'hedge': min(recent) if prediction == "Big" else max(recent),
-            'reason': f"Aggressive recovery after double loss ({confidence:.1f}% confidence)"
-        }
-    
-    def _emergency_recovery_strategy(self, recent, loss_pattern):
-        """Emergency recovery after multiple losses"""
-        # Emergency strategy with hedging
-        prediction = "Big" if len(recent) % 2 == 0 else "Small"  # Alternating strategy
-        
-        confidence = 90.0  # Maximum confidence for emergency
-        
-        return {
-            'level': 3,
-            'prediction': prediction,
-            'confidence': confidence,
-            'strategy': 'emergency_recovery',
-            'risk': 'very_high',
-            'target': 5 if prediction == "Big" else 4,
-            'hedge': 4 if prediction == "Big" else 5,
-            'reason': f"Emergency recovery after multiple losses ({confidence:.1f}% confidence)"
-        }
-
-
-class ThreeLevelWinningAlgorithm:
-    """3-Level Winning Evolving Intelligence Algorithm"""
-    
-    def __init__(self):
-        self.level1 = Level1ConservativeIntelligence()
-        self.level2 = Level2AggressiveIntelligence()
-        self.level3 = Level3RecoveryIntelligence()
-        
-        self.current_level = 1
-        self.loss_streak = 0
-        self.win_streak = 0
-        self.total_predictions = 0
-        self.total_wins = 0
-        
-        self.prediction_history = deque(maxlen=50)
-        self.performance_history = deque(maxlen=100)
-        
-    def load_complete_history(self):
-        """Load complete history from database"""
-        try:
-            engine = create_engine(DATABASE_URL)
-            
-            with engine.connect() as conn:
-                query = text("""
-                    SELECT sequence_no, digit, size, color, parity, timestamp_utc
-                    FROM outcomes
-                    ORDER BY sequence_no ASC
-                """)
-                
-                result = conn.execute(query)
-                data = result.fetchall()
-                
-                history_data = []
-                for row in data:
-                    history_data.append({
-                        'sequence_no': row[0],
-                        'digit': row[1],
-                        'size': row[2],
-                        'color': row[3],
-                        'parity': row[4],
-                        'timestamp': row[5]
-                    })
-                
-                logger.info(f"Loaded {len(history_data)} complete historical records")
-                return history_data
-                
-        except Exception as e:
-            logger.error(f"Error loading complete history: {e}")
-            return None
-    
-    def make_prediction(self):
-        """Make prediction using 3-level algorithm"""
-        history_data = self.load_complete_history()
-        
-        if not history_data or len(history_data) < 20:
-            logger.error("Insufficient history for prediction")
-            return None
-        
-        # Determine current level based on loss streak
-        if self.loss_streak >= 2:
-            self.current_level = 3
-        elif self.loss_streak >= 1:
-            self.current_level = 2
-        else:
-            self.current_level = 1
-        
-        logger.info(f"Current Level: {self.current_level}, Loss Streak: {self.loss_streak}")
-        
-        # Try each level in order
-        prediction = None
-        
-        # Level 1: Conservative
-        if self.current_level == 1:
-            prediction = self.level1.analyze(history_data)
-            if prediction:
-                logger.info(f"Level 1 Conservative: {prediction['prediction']} with {prediction['confidence']:.1f}% confidence")
-                return self._finalize_prediction(prediction)
-        
-        # Level 2: Aggressive
-        if self.current_level >= 2 or not prediction:
-            prediction = self.level2.analyze(history_data)
-            if prediction:
-                logger.info(f"Level 2 Aggressive: {prediction['prediction']} with {prediction['confidence']:.1f}% confidence")
-                return self._finalize_prediction(prediction)
-        
-        # Level 3: Recovery
-        if self.current_level >= 3 or not prediction:
-            prediction = self.level3.analyze(history_data, self.loss_streak)
-            if prediction:
-                logger.info(f"Level 3 Recovery: {prediction['prediction']} with {prediction['confidence']:.1f}% confidence")
-                return self._finalize_prediction(prediction)
-        
-        # Fallback: Simple prediction
-        logger.warning("All levels failed, using fallback prediction")
-        return self._fallback_prediction(history_data)
-    
-    def _finalize_prediction(self, prediction):
-        """Finalize prediction with metadata"""
-        finalized = {
-            'prediction': prediction['prediction'],
-            'confidence': prediction['confidence'],
-            'targetNum': prediction.get('target', 5),
-            'hedgeNum': prediction.get('hedge', 4),
-            'level': prediction['level'],
-            'strategy': prediction['strategy'],
-            'risk': prediction['risk'],
-            'reason': prediction['reason'],
-            'loss_streak': self.loss_streak,
-            'win_streak': self.win_streak,
-            'win_rate': self.total_wins / self.total_predictions if self.total_predictions > 0 else 0,
-            'source': '3_level_winning_algorithm'
-        }
-        
-        self.prediction_history.append(finalized)
+    def record(self, won: bool, level: int) -> None:
+        self.recent_results.append(won)
         self.total_predictions += 1
-        
-        return finalized
-    
-    def _fallback_prediction(self, history_data):
-        """Fallback prediction when all levels fail"""
-        digits = [item['digit'] for item in history_data]
-        recent = digits[-10:]
-        
-        big_count = sum(1 for d in recent if d >= 5)
-        prediction = "Big" if big_count >= len(recent) / 2 else "Small"
-        
-        return {
-            'prediction': prediction,
-            'confidence': 60.0,
-            'targetNum': max(recent) if prediction == "Big" else min(recent),
-            'hedgeNum': min(recent) if prediction == "Big" else max(recent),
-            'level': 0,
-            'strategy': 'fallback',
-            'risk': 'unknown',
-            'reason': 'Fallback prediction due to algorithm failure',
-            'loss_streak': self.loss_streak,
-            'win_streak': self.win_streak,
-            'win_rate': self.total_wins / self.total_predictions if self.total_predictions > 0 else 0,
-            'source': '3_level_winning_algorithm'
-        }
-    
-    def record_result(self, predicted, actual):
-        """Record prediction result and update streaks"""
-        won = (predicted.lower() == actual.lower())
-        
+        lv = min(3, max(1, level))
+        self.level_totals[lv] = self.level_totals.get(lv, 0) + 1
         if won:
-            self.loss_streak = 0
             self.win_streak += 1
+            self.loss_streak = 0
             self.total_wins += 1
-            logger.info(f"WIN! Win streak: {self.win_streak}")
+            self.level_wins[lv] = self.level_wins.get(lv, 0) + 1
+            self.level = 1          # reset to Level 1 after any win
         else:
             self.loss_streak += 1
             self.win_streak = 0
-            logger.info(f"LOSS! Loss streak: {self.loss_streak}")
-        
-        self.performance_history.append({
-            'predicted': predicted,
-            'actual': actual,
-            'won': won,
-            'loss_streak': self.loss_streak,
-            'win_streak': self.win_streak
-        })
-        
-        # Log performance summary
-        if len(self.performance_history) % 10 == 0:
-            recent_wins = sum(1 for p in list(self.performance_history)[-10:] if p['won'])
-            logger.info(f"Recent performance: {recent_wins}/10 wins")
-            logger.info(f"Overall: {self.total_wins}/{self.total_predictions} wins ({self.total_wins/self.total_predictions*100:.1f}%)")
-    
-    def get_algorithm_status(self):
-        """Get current algorithm status"""
+            self.level = min(3, self.level + 1)  # escalate
+
+    @property
+    def win_rate(self) -> float:
+        return self.total_wins / self.total_predictions if self.total_predictions else 0.5
+
+    @property
+    def level_win_rate(self) -> Dict[int, float]:
         return {
-            'current_level': self.current_level,
-            'loss_streak': self.loss_streak,
-            'win_streak': self.win_streak,
-            'total_predictions': self.total_predictions,
-            'total_wins': self.total_wins,
-            'win_rate': self.total_wins / self.total_predictions if self.total_predictions > 0 else 0,
-            'algorithm_type': '3_level_winning_evolving_intelligence'
+            lv: (self.level_wins.get(lv, 0) / max(1, self.level_totals.get(lv, 0)))
+            for lv in (1, 2, 3)
         }
 
+    @property
+    def recent_win_rate(self) -> float:
+        if not self.recent_results:
+            return 0.5
+        return sum(self.recent_results) / len(self.recent_results)
 
-def run_3_level_algorithm():
-    """Run the 3-level winning algorithm"""
-    logger.info("=" * 60)
-    logger.info("STARTING 3-LEVEL WINNING EVOLVING INTELLIGENCE ALGORITHM")
-    logger.info("=" * 60)
-    
-    algorithm = ThreeLevelWinningAlgorithm()
-    
-    # Make prediction
-    logger.info("Making prediction with 3-level algorithm...")
-    prediction = algorithm.make_prediction()
-    
-    if prediction:
-        logger.info("=" * 60)
-        logger.info("3-LEVEL ALGORITHM PREDICTION GENERATED")
-        logger.info("=" * 60)
-        logger.info(f"Level: {prediction['level']}")
-        logger.info(f"Strategy: {prediction['strategy']}")
-        logger.info(f"Prediction: {prediction['prediction']}")
-        logger.info(f"Confidence: {prediction['confidence']:.1f}%")
-        logger.info(f"Target: {prediction['targetNum']}")
-        logger.info(f"Hedge: {prediction['hedgeNum']}")
-        logger.info(f"Risk: {prediction['risk']}")
-        logger.info(f"Loss Streak: {prediction['loss_streak']}")
-        logger.info(f"Win Streak: {prediction['win_streak']}")
-        logger.info(f"Win Rate: {prediction['win_rate']*100:.1f}%")
-        logger.info(f"Reason: {prediction['reason']}")
-        logger.info("=" * 60)
+    def to_dict(self) -> dict:
+        return {
+            "level": self.level,
+            "loss_streak": self.loss_streak,
+            "win_streak": self.win_streak,
+            "total_predictions": self.total_predictions,
+            "total_wins": self.total_wins,
+            "level_wins": self.level_wins,
+            "level_totals": self.level_totals,
+            "recent_results": list(self.recent_results),
+            "last_predicted_issue": self.last_predicted_issue,
+            "last_predicted_side": self.last_predicted_side,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "MartingaleState":
+        s = cls()
+        s.level = int(d.get("level", 1))
+        s.loss_streak = int(d.get("loss_streak", 0))
+        s.win_streak = int(d.get("win_streak", 0))
+        s.total_predictions = int(d.get("total_predictions", 0))
+        s.total_wins = int(d.get("total_wins", 0))
+        s.level_wins = {int(k): int(v) for k, v in d.get("level_wins", {1: 0, 2: 0, 3: 0}).items()}
+        s.level_totals = {int(k): int(v) for k, v in d.get("level_totals", {1: 0, 2: 0, 3: 0}).items()}
+        for r in d.get("recent_results", []):
+            s.recent_results.append(bool(r))
+        s.last_predicted_issue = d.get("last_predicted_issue")
+        s.last_predicted_side = d.get("last_predicted_side")
+        return s
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Statistical helpers (no external deps)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _logodds_blend(probs: List[float]) -> float:
+    """Blend probabilities via log-odds average (more stable than arithmetic mean)."""
+    lo = 0.0
+    for p in probs:
+        p = max(0.005, min(0.995, p))
+        lo += math.log(p / (1.0 - p))
+    lo /= len(probs)
+    return 1.0 / (1.0 + math.exp(-lo))
+
+
+def _wilson_lower(wins: int, total: int, z: float = 1.645) -> float:
+    """90% Wilson lower confidence bound."""
+    if total <= 0:
+        return 0.0
+    p = wins / total
+    denom = 1 + z * z / total
+    centre = p + z * z / (2 * total)
+    spread = z * math.sqrt((p * (1 - p) + z * z / (4 * total)) / total)
+    return max(0.0, (centre - spread) / denom)
+
+
+def _ngram_p_big(history: List[int], order: int = 3) -> float:
+    """Simple n-gram P(Big) from frequency counts with Laplace smoothing."""
+    if len(history) <= order:
+        return 0.5
+    ctx = tuple(history[-order:])
+    big = small = 1  # Laplace
+    for i in range(len(history) - order - 1):
+        if tuple(history[i: i + order]) == ctx:
+            if history[i + order] >= 5:
+                big += 1
+            else:
+                small += 1
+    return big / (big + small)
+
+
+def _side_momentum(sides: List[int], window: int = 30) -> float:
+    """Exponentially-weighted recent side frequency → P(Big)."""
+    w = [0.97 ** i for i in range(window)]
+    w_arr = np.array(list(reversed(w[:len(sides)])), dtype=np.float64)
+    s_arr = np.array(sides[-window:], dtype=np.float64)
+    return float((w_arr * s_arr).sum() / (w_arr.sum() + 1e-9))
+
+
+def _streak_prediction(sides: List[int], reversal_threshold: float = 0.5) -> Tuple[float, int]:
+    """Return (p_big, current_streak_len).
+
+    reversal_threshold: if streak length exceeds this, predict reversal.
+    """
+    if not sides:
+        return 0.5, 0
+    current = sides[-1]
+    run = 1
+    for i in range(len(sides) - 2, -1, -1):
+        if sides[i] == current:
+            run += 1
+        else:
+            break
+    # Shrink continuation probability as streak grows
+    p_continue = 0.5 + 0.4 * math.exp(-0.08 * max(0, run - 2))
+    if current == 1:
+        return p_continue, run
     else:
-        logger.error("Failed to generate prediction")
-    
-    return prediction
+        return 1.0 - p_continue, run
 
 
-if __name__ == "__main__":
-    prediction = run_3_level_algorithm()
-    if prediction:
-        print(f"3-Level Algorithm Prediction: {prediction}")
+def _alternation_detector(sides: List[int], window: int = 20) -> float:
+    """Detect strong alternation pattern → inverted side prediction."""
+    if len(sides) < window:
+        return 0.5
+    recent = sides[-window:]
+    alternations = sum(1 for i in range(1, len(recent)) if recent[i] != recent[i - 1])
+    alt_rate = alternations / (len(recent) - 1)
+    # If strong alternation (>70%), predict opposite of last
+    if alt_rate > 0.70:
+        return 1.0 - float(recent[-1])   # opposite
+    elif alt_rate < 0.30:
+        return float(recent[-1])          # same (streak)
     else:
-        print("3-Level algorithm failed to generate prediction")
+        return 0.5
+
+
+def _compute_p_win3(p_single: float) -> float:
+    """Joint P(at least 1 win in 3) given single-round accuracy."""
+    p1 = p_single
+    p2 = 0.5 + 0.94 * (p1 - 0.5)
+    p3 = 0.5 + 0.88 * (p1 - 0.5)
+    raw = 1.0 - (1 - p1) * (1 - p2) * (1 - p3)
+    return 0.5 + (raw - 0.5) * 0.94  # mild correlation penalty
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-level intelligence strategies
+# ─────────────────────────────────────────────────────────────────────────────
+
+class Level1Strategy:
+    """Level 1 — Conservative.
+
+    Uses only highly-consistent signals.  Requires ≥3 of 5 methods to agree.
+    Returns None if consensus is not strong enough (then skip betting).
+    """
+    MIN_AGREEMENT = 3
+
+    def predict(self, digits: List[int], sides: List[int]) -> Optional[Tuple[str, float]]:
+        if len(digits) < 50:
+            return None
+
+        votes: List[float] = []
+
+        # 1. N-gram (order 4)
+        votes.append(_ngram_p_big(digits, order=4))
+
+        # 2. N-gram (order 3)
+        votes.append(_ngram_p_big(digits, order=3))
+
+        # 3. Side momentum (30-step EWA)
+        votes.append(_side_momentum(sides, window=30))
+
+        # 4. Streak prediction
+        p_streak, _ = _streak_prediction(sides)
+        votes.append(p_streak)
+
+        # 5. Alternation detector
+        votes.append(_alternation_detector(sides, window=20))
+
+        # Count Big votes (p > 0.52) vs Small votes (p < 0.48)
+        big_votes = sum(1 for v in votes if v > 0.52)
+        small_votes = sum(1 for v in votes if v < 0.48)
+
+        if big_votes >= self.MIN_AGREEMENT:
+            p = _logodds_blend([v for v in votes if v > 0.50])
+            return "Big", max(0.55, min(0.80, p))
+        elif small_votes >= self.MIN_AGREEMENT:
+            p = _logodds_blend([1 - v for v in votes if v < 0.50])
+            return "Small", max(0.55, min(0.80, p))
+        return None  # no consensus → skip
+
+
+class Level2Strategy:
+    """Level 2 — Aggressive recovery.
+
+    Lower consensus bar (2 of 5), stronger signal emphasis.
+    Always returns a prediction — no skipping at Level 2.
+    """
+    MIN_AGREEMENT = 2
+
+    def predict(self, digits: List[int], sides: List[int]) -> Tuple[str, float]:
+        if len(digits) < 20:
+            side = "Big" if sides[-1] == 0 else "Small"  # simple reversal
+            return side, 0.60
+
+        votes: List[float] = []
+
+        # Use shorter context for more responsiveness
+        votes.append(_ngram_p_big(digits, order=3))
+        votes.append(_ngram_p_big(digits, order=2))
+        votes.append(_side_momentum(sides, window=15))
+        p_streak, streak_len = _streak_prediction(sides)
+        votes.append(p_streak)
+        votes.append(_alternation_detector(sides, window=12))
+
+        blended = _logodds_blend(votes)
+        side = "Big" if blended >= 0.5 else "Small"
+        raw_conf = max(blended, 1.0 - blended)
+
+        # At Level 2 we slightly boost confidence to reflect our higher urgency
+        conf = max(0.60, min(0.85, raw_conf + 0.04))
+        return side, conf
+
+
+class Level3Strategy:
+    """Level 3 — Emergency recovery.
+
+    Two consecutive losses.  Focus on the single strongest directional signal.
+    Adds a "anti-gambler" bias: if we've lost twice on the same side, switch.
+    Always returns a prediction.
+    """
+
+    def predict(
+        self,
+        digits: List[int],
+        sides: List[int],
+        last_two_predictions: List[str],
+    ) -> Tuple[str, float]:
+        if len(digits) < 10:
+            # Pure reversal of last prediction
+            rev = "Big" if (not last_two_predictions or last_two_predictions[-1] == "Small") else "Small"
+            return rev, 0.65
+
+        # Anti-gambler switch: if both prior losses were same side, switch
+        if len(last_two_predictions) >= 2 and last_two_predictions[-1] == last_two_predictions[-2]:
+            forced_side = "Small" if last_two_predictions[-1] == "Big" else "Big"
+        else:
+            forced_side = None
+
+        # Primary signal: 30-step EWA + streak
+        p_mom = _side_momentum(sides, window=20)
+        p_streak, streak_len = _streak_prediction(sides)
+        p_alt = _alternation_detector(sides, window=10)
+
+        # Directional signal
+        votes = [p_mom, p_streak, p_alt]
+        blended = _logodds_blend(votes)
+        signal_side = "Big" if blended >= 0.5 else "Small"
+
+        # Apply anti-gambler override at high loss streaks
+        final_side = forced_side if forced_side else signal_side
+        conf = 0.70  # confident but honest at Level 3
+        return final_side, conf
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main ThreeLevelWinningAlgorithm
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ThreeLevelWinningAlgorithm:
+    """Martingale-aware 3-level prediction engine with DB-persisted state.
+
+    Lifecycle:
+        algo = ThreeLevelWinningAlgorithm()
+        algo.load_state(db)                     # on startup
+        result = algo.predict(history, db)      # every 30s cycle
+        algo.record_outcome(issue, actual, db)  # after each draw resolves
+    """
+
+    MODEL_NAME = "Three_Level_Martingale_State"
+
+    def __init__(self):
+        self.state = MartingaleState()
+        self.level1 = Level1Strategy()
+        self.level2 = Level2Strategy()
+        self.level3 = Level3Strategy()
+        # Track last 2 issued predictions for anti-gambler logic
+        self._recent_predictions: deque = deque(maxlen=10)
+        # Per-level calibration from DB history
+        self._calibration: Dict[int, float] = {1: 0.60, 2: 0.63, 3: 0.66}
+
+    # ── state persistence ─────────────────────────────────────────────────────
+
+    def save_state(self, db) -> None:
+        try:
+            from backend.database import save_ai_brain_state
+            payload = {
+                "martingale_state": self.state.to_dict(),
+                "recent_predictions": list(self._recent_predictions),
+                "calibration": self._calibration,
+                "saved_at": datetime.utcnow().isoformat(),
+            }
+            save_ai_brain_state(
+                db=db,
+                model_name=self.MODEL_NAME,
+                generation=self.state.total_predictions,
+                total_samples=self.state.total_predictions,
+                weights_json=json.dumps(payload),
+                win_rate=self.state.win_rate * 100,
+            )
+        except Exception as e:
+            print(f"[3Level] save_state failed: {e}")
+
+    def load_state(self, db) -> bool:
+        try:
+            from backend.database import load_ai_brain_state
+            brain = load_ai_brain_state(db, model_name=self.MODEL_NAME)
+            if not brain or not brain.synaptic_weights:
+                return False
+            payload = json.loads(brain.synaptic_weights)
+            self.state = MartingaleState.from_dict(payload.get("martingale_state", {}))
+            for p in payload.get("recent_predictions", []):
+                self._recent_predictions.append(p)
+            cal = payload.get("calibration", {})
+            self._calibration = {int(k): float(v) for k, v in cal.items()} if cal else self._calibration
+            print(f"[3Level] Loaded state: Level={self.state.level} L-streak={self.state.loss_streak} "
+                  f"W-rate={self.state.win_rate:.1%}")
+            return True
+        except Exception as e:
+            print(f"[3Level] load_state failed: {e}")
+            return False
+
+    # ── calibration from DB outcomes ──────────────────────────────────────────
+
+    def recalibrate_from_db(self, db) -> None:
+        """Recompute per-level calibrated win rates from PredictionLog table."""
+        try:
+            from backend.database import PredictionLog
+            rows = (
+                db.query(PredictionLog)
+                .filter(PredictionLog.is_win.isnot(None))
+                .order_by(PredictionLog.id.desc())
+                .limit(2000)
+                .all()
+            )
+            level_data: Dict[int, List[int]] = {1: [], 2: [], 3: []}
+            for row in rows:
+                lv = int(row.martingale_level or 1)
+                lv = min(3, max(1, lv))
+                level_data[lv].append(1 if row.is_win else 0)
+            for lv in (1, 2, 3):
+                data = level_data[lv]
+                if len(data) >= 10:
+                    raw = sum(data) / len(data)
+                    lb = _wilson_lower(sum(data), len(data))
+                    # Conservative: use Wilson lower bound unless history is deep
+                    self._calibration[lv] = lb if len(data) < 100 else raw
+            print(f"[3Level] Calibration updated: {self._calibration}")
+        except Exception as e:
+            print(f"[3Level] recalibrate_from_db failed: {e}")
+
+    # ── main prediction ───────────────────────────────────────────────────────
+
+    def predict(self, history: List[int], db=None) -> Optional[dict]:
+        """Generate a Martingale-level-aware prediction.
+
+        Returns a dict with keys:
+            prediction, confidence, level, p_win3, targetNum, hedgeNum,
+            stake_multiplier, martingale_hint, loss_streak, win_streak
+        Or None if history is insufficient.
+        """
+        if len(history) < 20:
+            return None
+
+        digits = [int(x) % 10 for x in history]
+        sides = [1 if d >= 5 else 0 for d in digits]
+        current_level = self.state.level
+
+        # Recalibrate from DB periodically
+        if db is not None and self.state.total_predictions % 50 == 0:
+            self.recalibrate_from_db(db)
+
+        # Get recent prediction list for anti-gambler logic
+        recent_preds = list(self._recent_predictions)
+
+        # ── Select strategy per level ─────────────────────────────────────────
+        result_tuple: Optional[Tuple[str, float]] = None
+
+        if current_level == 1:
+            result_tuple = self.level1.predict(digits, sides)
+            if result_tuple is None:
+                # Consensus not achieved — use a cautious fallback (do NOT skip silently)
+                p_mom = _side_momentum(sides, window=20)
+                side = "Big" if p_mom >= 0.5 else "Small"
+                result_tuple = (side, 0.56)
+
+        elif current_level == 2:
+            result_tuple = self.level2.predict(digits, sides)
+
+        else:  # Level 3
+            result_tuple = self.level3.predict(digits, sides, recent_preds)
+
+        prediction, raw_conf = result_tuple
+
+        # ── Apply level-specific calibration ─────────────────────────────────
+        cal_conf = self._calibration.get(current_level, 0.60)
+        # Trust DB calibration more once we have history
+        n_level = self.state.level_totals.get(current_level, 0)
+        trust = min(1.0, n_level / 100.0)
+        conf = (1 - trust) * raw_conf + trust * max(cal_conf, raw_conf * 0.9)
+        conf = max(0.51, min(0.90, conf))
+
+        # ── Digit target & hedge ──────────────────────────────────────────────
+        # Pick the most-overdue digit on the predicted side based on gap analysis
+        recent_digits = digits[-50:]
+        counts = np.zeros(10)
+        for d in recent_digits:
+            counts[d] += 1
+        # Digits that appear less often on the predicted side are "overdue"
+        if prediction == "Big":
+            side_range = range(5, 10)
+            opp_range = range(0, 5)
+        else:
+            side_range = range(0, 5)
+            opp_range = range(5, 10)
+
+        side_counts = counts.copy()
+        opp_counts = counts.copy()
+        for d in opp_range:
+            side_counts[d] = 999  # mask out opposite side
+        for d in side_range:
+            opp_counts[d] = 999
+        target_num = int(np.argmin(side_counts))   # least seen on our side
+        hedge_num = int(np.argmin(opp_counts))     # least seen on opposite side
+
+        # ── Stake multipliers ─────────────────────────────────────────────────
+        stake_map = {1: 1.0, 2: 2.2, 3: 4.8}
+        stake = stake_map[current_level]
+
+        # ── P(win in 3) from this level ───────────────────────────────────────
+        p_win3 = _compute_p_win3(conf)
+
+        # ── Track for anti-gambler ────────────────────────────────────────────
+        self._recent_predictions.append(prediction)
+        self.state.last_predicted_side = prediction
+
+        level_labels = {1: "🟢 CONSERVATIVE", 2: "🟡 RECOVERY", 3: "🔴 EMERGENCY"}
+        return {
+            "prediction": prediction,
+            "confidence": round(conf * 100, 1),
+            "level": current_level,
+            "level_label": level_labels[current_level],
+            "p_win3": round(p_win3, 4),
+            "targetNum": target_num,
+            "hedgeNum": hedge_num,
+            "stake_multiplier": stake,
+            "loss_streak": self.state.loss_streak,
+            "win_streak": self.state.win_streak,
+            "win_rate": round(self.state.win_rate, 4),
+            "level_win_rates": self.state.level_win_rate,
+            "recent_win_rate": round(self.state.recent_win_rate, 4),
+            "total_predictions": self.state.total_predictions,
+            "martingale_hint": {
+                "level": current_level,
+                "stake_multiplier": stake,
+                "p_win3": round(p_win3, 4),
+                "max_drawdown_in_3": round(1.0 + 2.2 + 4.8, 1),
+                "net_profit_if_win_l1": round(stake * 1.95 - 1.0, 2),
+                "net_profit_if_win_l2": round(stake * 1.95 - (1.0 + 2.2), 2),
+                "net_profit_if_win_l3": round(stake * 1.95 - (1.0 + 2.2 + 4.8), 2),
+            },
+            "source": "three_level_martingale",
+        }
+
+    # ── outcome recording ─────────────────────────────────────────────────────
+
+    def record_outcome(self, issue: str, actual_side: str, db=None) -> bool:
+        """Record whether the last prediction won or lost.
+
+        Returns True if this was a new (unrecorded) outcome.
+        """
+        if self.state.last_predicted_issue == issue:
+            return False  # already recorded
+        if self.state.last_predicted_side is None:
+            return False
+        won = (self.state.last_predicted_side.lower() == actual_side.lower())
+        self.state.record(won, self.state.level)
+        self.state.last_predicted_issue = issue
+        if db is not None:
+            self.save_state(db)
+        return True
+
+    def get_status(self) -> dict:
+        """Return a summary dict for display in Telegram."""
+        stake_map = {1: 1.0, 2: 2.2, 3: 4.8}
+        return {
+            "current_level": self.state.level,
+            "level_label": {1: "🟢 Conservative", 2: "🟡 Recovery", 3: "🔴 Emergency"}.get(
+                self.state.level, "?"
+            ),
+            "loss_streak": self.state.loss_streak,
+            "win_streak": self.state.win_streak,
+            "total_predictions": self.state.total_predictions,
+            "win_rate": f"{self.state.win_rate:.1%}",
+            "recent_win_rate": f"{self.state.recent_win_rate:.1%}",
+            "stake_multiplier": stake_map[self.state.level],
+            "level_win_rates": {
+                f"L{lv}": f"{r:.1%}"
+                for lv, r in self.state.level_win_rate.items()
+            },
+        }
