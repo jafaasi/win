@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 from backend.database import save_ai_brain_state, SessionLocal, Outcome
 from datetime import datetime, timedelta
+from backend.extraordinary_intelligence import ExtraordinaryIntelligence
 
 # Add EVOSEQ path for Python imports
 evoseq_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'EVOSEQ')
@@ -39,6 +40,7 @@ class GlobalBrain:
         self.predictor = None
         self.transformer = None
         self.mamba = None
+        self.extraordinary_intelligence = None
         self.drift_detector = None
         self.pattern_extractor = None
         self.adaptive_tuner = None
@@ -65,6 +67,10 @@ class GlobalBrain:
         self.adaptive_tuner = AdaptiveHyperparameterTuner()
         print("EVO_DEBUG: Initialized Adaptive Hyperparameter Tuner")
         
+        # Initialize extraordinary intelligence
+        self.extraordinary_intelligence = ExtraordinaryIntelligence()
+        print("EVO_DEBUG: Initialized Extraordinary Intelligence")
+        
         # Load or create Transformer
         transformer_path = os.path.join(os.path.dirname(__file__), 'brain_transformer.pt')
         print("EVO_DEBUG: Loading Transformer")
@@ -88,6 +94,23 @@ class GlobalBrain:
         else:
             self.mamba = MambaSequenceModel(input_size=10, hidden_size=64, layers=2, context_length=64, temperature=1.1)
         print("EVO_DEBUG: Loaded Mamba")
+        
+        # Load or create extraordinary intelligence model
+        extraordinary_path = os.path.join(os.path.dirname(__file__), 'brain_extraordinary.pt')
+        print("EVO_DEBUG: Loading Extraordinary Intelligence")
+        if os.path.exists(extraordinary_path):
+            try:
+                self.extraordinary_intelligence.load_complete_history()
+                self.extraordinary_intelligence.extract_extraordinary_features()
+                self.extraordinary_intelligence.initialize_model()
+                self.extraordinary_intelligence.model.load_state_dict(torch.load(extraordinary_path))
+                self.extraordinary_intelligence.is_initialized = True
+                print("EVO_DEBUG: Loaded Extraordinary Intelligence model")
+            except Exception as e:
+                print(f"EVO_DEBUG: Failed to load extraordinary model: {e}, will retrain")
+                self.extraordinary_intelligence.is_initialized = False
+        else:
+            print("EVO_DEBUG: No extraordinary model found, will train on first run")
             
         self.predictor.models.append(DeepPyTorchWrapper(self.transformer))
         self.predictor.models.append(DeepPyTorchWrapper(self.mamba))
@@ -114,9 +137,17 @@ class GlobalBrain:
             transformer_path = os.path.join(os.path.dirname(__file__), 'brain_transformer.pt')
             mamba_path = os.path.join(os.path.dirname(__file__), 'brain_mamba.pt')
             meta_path = os.path.join(os.path.dirname(__file__), 'brain_meta.npy')
+            extraordinary_path = os.path.join(os.path.dirname(__file__), 'brain_extraordinary.pt')
+            
             self.transformer.save(transformer_path)
             self.mamba.save(mamba_path)
             np.save(meta_path, self.predictor.weights)
+            
+            # Save extraordinary intelligence model
+            if self.extraordinary_intelligence and self.extraordinary_intelligence.model:
+                torch.save(self.extraordinary_intelligence.model.state_dict(), extraordinary_path)
+                print("EVO_DEBUG: Saved extraordinary intelligence model")
+                
         except Exception as e:
             print(f"Failed to save brain state: {e}")
 
@@ -205,6 +236,19 @@ def run_evoseq_cycle(history, db=None):
     pattern_extractor = _global_brain.pattern_extractor
     adaptive_tuner = _global_brain.adaptive_tuner
     
+    # 3.1 Train extraordinary intelligence on first run or periodically
+    if not _global_brain.extraordinary_intelligence.is_initialized:
+        print("EVO_DEBUG: Training extraordinary intelligence on complete history...")
+        try:
+            _global_brain.extraordinary_intelligence.load_complete_history()
+            _global_brain.extraordinary_intelligence.extract_extraordinary_features()
+            _global_brain.extraordinary_intelligence.initialize_model()
+            # Quick training for responsiveness
+            _global_brain.extraordinary_intelligence.train_on_complete_history(epochs=10, batch_size=16)
+            print("EVO_DEBUG: Extraordinary intelligence training completed")
+        except Exception as e:
+            print(f"EVO_DEBUG: Extraordinary intelligence training failed: {e}")
+    
     # 4. Update drift detector with recent data
     recent_history = history[-min(200, len(history)):]
     for val in recent_history:
@@ -272,7 +316,37 @@ def run_evoseq_cycle(history, db=None):
     eval_ctx = int_seq[-64:] if len(int_seq) >= 64 else int_seq
     probs_ensemble = predictor.predict_next(eval_ctx)
     
+    # 6.1 Enhance with Extraordinary Intelligence
+    print("EVO_DEBUG: Enhancing with Extraordinary Intelligence...")
+    extraordinary_prediction = None
+    extraordinary_used = False
+    try:
+        extraordinary_prediction = _global_brain.extraordinary_intelligence.predict_next()
+        if extraordinary_prediction:
+            print(f"EVO_DEBUG: Extraordinary prediction: {extraordinary_prediction['prediction']} with {extraordinary_prediction['confidence']:.1f}% confidence")
+            
+            # Blend extraordinary intelligence with ensemble (30% weight to extraordinary)
+            extraordinary_probs = np.array(extraordinary_prediction['probabilities'])
+            probs_ensemble = 0.7 * probs_ensemble + 0.3 * extraordinary_probs
+            
+            # Update prediction if extraordinary confidence is higher
+            if extraordinary_prediction['confidence'] > li.get("confidence", 0):
+                print("EVO_DEBUG: Using extraordinary prediction due to higher confidence")
+                li["prediction"] = extraordinary_prediction['prediction']
+                li["confidence"] = extraordinary_prediction['confidence']
+                li["targetNum"] = extraordinary_prediction['targetNum']
+                li["hedgeNum"] = extraordinary_prediction['hedgeNum']
+                extraordinary_used = True
+        else:
+            print("EVO_DEBUG: Extraordinary intelligence prediction failed, using ensemble only")
+    except Exception as e:
+        print(f"EVO_DEBUG: Extraordinary intelligence error: {e}, using ensemble only")
+    
     # Apply 3-gram pattern enhancement
+    if len(eval_ctx) >= 2:
+        ngram_probs = pattern_extractor.get_3gram_probability(eval_ctx)
+        # Blend ensemble with n-gram patterns (30% weight)
+        probs_ensemble = 0.7 * probs_ensemble + 0.3 * ngram_probs
     if len(eval_ctx) >= 2:
         ngram_probs = pattern_extractor.get_3gram_probability(eval_ctx)
         # Blend ensemble with n-gram patterns (30% weight)
@@ -325,7 +399,10 @@ def run_evoseq_cycle(history, db=None):
         "EQUILIBRIUM": "⚖️"
     }.get(current_regime, "🧬")
     
-    patternName = f"{regime_emoji} {champion_name} {current_regime}" if predictor.weights[0] < 0.9 else "⚖️ Uniform Randomness (No Exploit Found)"
+    # Check if extraordinary intelligence was used
+    intelligence_marker = "🧠 EXTRAORDINARY" if extraordinary_used else "🧬"
+    
+    patternName = f"{intelligence_marker} {regime_emoji} {champion_name} {current_regime}" if predictor.weights[0] < 0.9 else "⚖️ Uniform Randomness (No Exploit Found)"
     
     dominant_p = max(prob_big, prob_small)
     advantage = max(0.002, dominant_p - 0.50)
