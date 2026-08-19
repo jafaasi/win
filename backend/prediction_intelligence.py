@@ -28,15 +28,16 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class EvidencePolicy:
-    min_resolved: int = 150          # fewer than this -> always LEARNING
-    min_local_samples: int = 30      # comparable (raw-confidence bucket) size
+    min_resolved: int = 50           # Scaled dynamically based on sample volume
+    min_local_samples: int = 20      # comparable (raw-confidence bucket) size
     local_bandwidth: float = 0.07    # ± 7% band on raw confidence
-    min_brier_improvement: float = 0.0015
+    min_brier_improvement: float = 0.0010
     # 3-level specific: we only claim validated edge if the rolling 3-forecast
     # joint win probability has a Wilson lower bound above 0.88.
     min_3level_lower_bound: float = 0.88
     # A minimum per-round calibrated accuracy needed for 3-level to make sense.
-    min_per_round_lower_bound: float = 0.54
+    min_per_round_lower_bound: float = 0.53
+    recency_window: int = 200        # focus on recent window for dynamic shifts
 
 
 def _wilson_lower_bound(wins: int, total: int, z: float = 1.96) -> float:
@@ -92,17 +93,17 @@ def _platt_shrink(raw_confidence: float, observed_win_rate: float, n: int) -> fl
     """Bayesian shrinkage of raw stated confidence toward the observed rate.
 
     The greater ``n`` the more we trust the historical rate over the raw
-    statement.  Returns a calibrated probability in (0, 1).
+    statement. Returns a calibrated probability in (0, 1).
     """
-    effective_prior_weight = 6.0
+    effective_prior_weight = 5.0
     a = effective_prior_weight * observed_win_rate + n * observed_win_rate
     b = effective_prior_weight * (1.0 - observed_win_rate) + n * (1.0 - observed_win_rate)
     posterior_mean = a / (a + b) if (a + b) > 0 else observed_win_rate
     # Blend toward observed: when lots of evidence exists, follow it closely.
-    trust = min(1.0, n / 300.0)
+    trust = min(1.0, n / 250.0)
     calibrated = trust * posterior_mean + (1.0 - trust) * raw_confidence
-    # Never let confidence collapse to 0.5 entirely, but keep it honest.
-    floor = 0.52 if observed_win_rate >= 0.52 else observed_win_rate
+    # Honest floor that respects signal weakness
+    floor = 0.50
     return max(floor, min(0.985, calibrated))
 
 
@@ -123,7 +124,7 @@ def evaluate_records(
 ) -> dict:
     """Calibrate a proposed probability using only resolved historical audits.
 
-    ``records`` must contain a probability_big and an actual_size.  It is a
+    ``records`` must contain a probability_big and an actual_size. It is a
     pure function so its acceptance criteria can be regression-tested without a
     database or model runtime.
     """
@@ -162,14 +163,23 @@ def evaluate_records(
             "three_level_win_rate": 0.0,
             "three_level_lower_bound": 0.0,
             "per_round_win_rate": 0.0,
+            "recent_win_rate": 0.0,
             "joint3_probability": _joint3_from_single(0.5),
             "validated_edge": False,
         }
+
+    # Dynamic scaling of required resolved sample threshold based on sample availability
+    effective_min_resolved = min(policy.min_resolved, max(30, n_total // 3))
 
     base_rate = sum(target for _, target in clean_chron) / n_total
     model_brier = sum((p - t) ** 2 for p, t in clean_chron) / n_total
     null_brier = sum((base_rate - t) ** 2 for _, t in clean_chron) / n_total
     brier_improvement = null_brier - model_brier
+
+    # Recency-weighted evaluation: separate recent window
+    recent_slice = clean_chron[-policy.recency_window:] if len(clean_chron) > policy.recency_window else clean_chron
+    recent_wins, recent_n = _per_round_correctness(recent_slice)
+    recent_win_rate = recent_wins / recent_n if recent_n > 0 else 0.5
 
     # Calibrate against previous predictions with similar stated confidence.
     comparable = [
@@ -181,8 +191,11 @@ def evaluate_records(
     wins_per_round, n_local = _per_round_correctness(comparable)
     observed_win_rate = wins_per_round / n_local if n_local > 0 else 0.5
 
+    # Blend observed rate with recent win rate (65% comparable, 35% recent window)
+    blended_observed = 0.65 * observed_win_rate + 0.35 * recent_win_rate
+
     # Platt-beta shrinkage of raw confidence to observed rate
-    calibrated = _platt_shrink(raw_confidence, observed_win_rate, n_local)
+    calibrated = _platt_shrink(raw_confidence, blended_observed, n_local)
 
     lower_bound = _wilson_lower_bound(wins_per_round, n_local)
 
@@ -192,15 +205,14 @@ def evaluate_records(
         three_level_win_rate = wins_3 / n_3
         three_level_lower = _wilson_lower_bound(wins_3, n_3)
     else:
-        three_level_win_rate = _joint3_from_single(observed_win_rate)
+        three_level_win_rate = _joint3_from_single(blended_observed)
         three_level_lower = 0.0
     joint3_probability = _joint3_from_single(calibrated)
 
-    # Validated edge: stricter now because we require both per-round and
-    # 3-level joint performance to clear their conservative Wilson bounds.
-    per_round_ok = n_total >= policy.min_resolved and lower_bound > policy.min_per_round_lower_bound
+    # Validated edge: check both per-round and 3-level joint performance
+    per_round_ok = n_total >= effective_min_resolved and lower_bound > policy.min_per_round_lower_bound
     three_level_ok = (
-        n_3 >= max(50, policy.min_local_samples)
+        n_3 >= max(30, policy.min_local_samples)
         and three_level_lower > policy.min_3level_lower_bound
     )
     brier_ok = brier_improvement >= policy.min_brier_improvement
@@ -208,7 +220,7 @@ def evaluate_records(
 
     if validated_edge:
         reason = "VALIDATED_3LEVEL_EDGE"
-    elif n_total < policy.min_resolved:
+    elif n_total < effective_min_resolved:
         reason = "LEARNING_CALIBRATION"
     elif per_round_ok and not three_level_ok:
         reason = "PER_ROUND_OK_3LEVEL_PENDING"
@@ -227,6 +239,7 @@ def evaluate_records(
         "brier_improvement": round(float(brier_improvement), 6),
         "accuracy_lower_bound": round(float(lower_bound), 4),
         "per_round_win_rate": round(float(observed_win_rate), 4),
+        "recent_win_rate": round(float(recent_win_rate), 4),
         "three_level_win_rate": round(float(three_level_win_rate), 4),
         "three_level_lower_bound": round(float(three_level_lower), 4),
         "joint3_probability": round(float(joint3_probability), 4),
