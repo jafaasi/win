@@ -10,7 +10,8 @@ import uvicorn
 # Ensure we can import from root modules when run via github actions
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.database import SessionLocal, save_live_draws
+from backend.database import SessionLocal, save_live_draws, Outcome
+from datetime import datetime, timedelta
 
 API_ENDPOINT = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
 
@@ -26,14 +27,42 @@ async def fetch_wingo_draws():
             print(f"Fetch Note: {e}")
     return []
 
+async def cleanup_old_data(days_old=2):
+    """Automatic cleanup of old data from Supabase to manage storage"""
+    try:
+        session = SessionLocal()
+        cutoff_date = datetime.utcnow() - timedelta(days=days_old)
+        
+        # Count records to be deleted
+        count = session.query(Outcome).filter(
+            Outcome.timestamp_utc < cutoff_date
+        ).count()
+        
+        if count > 0:
+            print(f"🧹 Cleaning up {count} records older than {days_old} days from Supabase")
+            session.query(Outcome).filter(
+                Outcome.timestamp_utc < cutoff_date
+            ).delete()
+            session.commit()
+            print(f"✅ Successfully deleted {count} old records")
+        else:
+            print(f"✓ No records older than {days_old} days found")
+            
+        session.close()
+        return count
+    except Exception as e:
+        print(f"⚠️ Error cleaning up old data: {e}")
+        return -1
+
+
 async def run_scraper_daemon(max_duration_seconds=18000):
     """
     🏠 LOCAL SCRAPER: Runs on your local machine to collect and store outcomes
     - Polls WinGo API every 1.5 seconds
-    - Stores outcomes in Supabase/PostgreSQL database
-    - Does NOT run ML or make predictions
-    - Leaves all intelligence to the local AI engine
-    - Optimized for free tier: runs locally, stores to cloud database
+    Stores outcomes in Supabase/PostgreSQL database
+    Does NOT run ML or make predictions
+    Leaves all intelligence to the local AI engine
+    Optimized for free tier: runs locally, stores to cloud database
     """
     start_time = time.time()
     print(f"🏠 Starting LOCAL Scraper (Historical Data Collection)")
@@ -43,9 +72,15 @@ async def run_scraper_daemon(max_duration_seconds=18000):
     
     last_processed_issue = None
     draws_collected = 0
+    last_cleanup_time = time.time()
     
     while time.time() - start_time < max_duration_seconds:
         try:
+            # Run cleanup every 24 hours
+            if time.time() - last_cleanup_time > 86400:  # 24 hours
+                await cleanup_old_data(days_old=2)
+                last_cleanup_time = time.time()
+            
             draws = await fetch_wingo_draws()
             if draws:
                 latest_issue = str(draws[0]["issueNumber"])
@@ -59,6 +94,10 @@ async def run_scraper_daemon(max_duration_seconds=18000):
                         # 1. ONLY sync draws to database - no prediction logic
                         new_draws = save_live_draws(db, draws)
                         print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] 🏠 Outcome #{latest_issue}: {draws[0]['number']} | {draws_collected} collected | Database sync complete")
+                        
+                        # Periodically clean up old data (every 1000 draws)
+                        if draws_collected % 1000 == 0:
+                            await cleanup_old_data(days_old=2)
                     except Exception as e:
                         print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] ⚠️ Database sync error: {e}")
                     finally:

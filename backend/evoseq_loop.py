@@ -2,12 +2,18 @@ import json
 import time
 import numpy as np
 import torch
+import logging
 torch.set_num_threads(1)
 from datetime import datetime
 import sys
 import os
 
-from backend.database import save_ai_brain_state
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+from backend.database import save_ai_brain_state, SessionLocal, Outcome
+from datetime import datetime, timedelta
 
 # Add EVOSEQ path for Python imports
 evoseq_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'EVOSEQ')
@@ -132,10 +138,36 @@ class DeepPyTorchWrapper(BaseModel):
         probs = self.model.predict_proba(eval_ctx)
         return np.array(probs)
 
-def run_evoseq_cycle(history, db):
+def run_evoseq_cycle(history, db=None):
     if len(history) < 10:
         return None
+    
+    # Enhanced: Fetch recent data from Supabase for better learning
+    try:
+        session = SessionLocal()
+        cutoff_date = datetime.utcnow() - timedelta(days=7)
         
+        # Fetch recent outcomes from Supabase
+        supabase_data = session.query(Outcome).filter(
+            Outcome.timestamp_utc >= cutoff_date
+        ).order_by(Outcome.sequence_no.asc()).all()
+        
+        if supabase_data:
+            # Convert Supabase data to history format
+            supabase_history = [str(item.digit) for item in supabase_data]
+            logger.info(f"Fetched {len(supabase_history)} records from Supabase for enhanced learning")
+            
+            # Combine with local history (prefer Supabase data)
+            if len(supabase_history) > len(history):
+                history = supabase_history
+                logger.info("Using Supabase data for training (higher quality)")
+        else:
+            logger.info("Using local history (Supabase data not available)")
+            
+        session.close()
+    except Exception as e:
+        logger.warning(f"Could not fetch Supabase data: {e}, using local history")
+    
     print(f"=== 🧬 RUNNING ENHANCED EXPLOIT-FOCUSED ADAPTIVE PRNG PIPELINE (n={len(history)}) ===")
     
     t0 = time.time()
@@ -375,3 +407,31 @@ def run_evoseq_cycle(history, db):
     print(f"⏱️  Pipeline completed in {time.time() - t0:.2f}s")
         
     return registry_state
+
+
+def cleanup_old_data(days_old=2):
+    """Automatic cleanup of old data from Supabase to manage storage"""
+    try:
+        session = SessionLocal()
+        cutoff_date = datetime.utcnow() - timedelta(days=days_old)
+        
+        # Count records to be deleted
+        count = session.query(Outcome).filter(
+            Outcome.timestamp_utc < cutoff_date
+        ).count()
+        
+        if count > 0:
+            logger.info(f"Cleaning up {count} records older than {days_old} days from Supabase")
+            session.query(Outcome).filter(
+                Outcome.timestamp_utc < cutoff_date
+            ).delete()
+            session.commit()
+            logger.info(f"Successfully deleted {count} old records")
+        else:
+            logger.info(f"No records older than {days_old} days found")
+            
+        session.close()
+        return count
+    except Exception as e:
+        logger.error(f"Error cleaning up old data: {e}")
+        return -1
