@@ -1,0 +1,17 @@
+[Unit]
+Description=WinGo evolving intelligence engine
+Wants=network-online.target
+After=network-online.target win-scraper.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/win
+EnvironmentFile=/etc/win/win.env
+ExecStart=/home/ubuntu/win/.venv/bin/python3 /home/ubuntu/win/backend/local_ai_engine.py
+Restart=always
+RestartSec=10
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

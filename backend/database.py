@@ -12,7 +12,8 @@ except ImportError:
 
 from sqlalchemy.pool import NullPool
 
-# Use cloud DATABASE_URL if provided, else fallback to Supabase or local SQLite
+# Use the supplied environment configuration.  On AWS this is injected by
+# systemd from /etc/win/win.env; local development may use backend/.env.
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # If no DATABASE_URL env var, try to load from .env file
@@ -26,13 +27,6 @@ if not DATABASE_URL:
             DATABASE_URL = os.environ.get("DATABASE_URL")
     except:
         pass
-
-# Hardcoded Supabase URL as fallback for Render (where DATABASE_URL may not be set)
-SUPABASE_DEFAULT = "postgresql://postgres.zyryxnifpduwsulglhdq:JafAasi1517@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres"
-
-if not DATABASE_URL and os.environ.get("RENDER_ENV") == "production":
-    DATABASE_URL = SUPABASE_DEFAULT
-    print("[DB] Using hardcoded Supabase URL for Render production")
 
 if DATABASE_URL:
     DATABASE_URL = DATABASE_URL.strip().strip('"').strip("'").strip()
@@ -52,7 +46,7 @@ if DATABASE_URL:
             "keepalives_count": 5
         }
     )
-    print(f"[DB] Connected to Supabase: {DATABASE_URL[:50]}...")
+    print("[DB] Connected using DATABASE_URL")
 
 else:
     # Fallback to local SQLite
@@ -281,25 +275,15 @@ def save_live_draws(db, live_draws):
         except Exception:
             pass
             
-        # 2. Check and update or create PredictionLog
+        # 2. Reconcile a prediction only when it was made before this outcome.
+        # Never create a synthetic inverse prediction here: that corrupts the
+        # measured win rate and makes calibration meaningless.
         pending_log = db.query(PredictionLog).filter(PredictionLog.issue_number == issue).first()
 
         if pending_log:
             if pending_log.actual_size is None:
                 pending_log.actual_size = act_size
                 pending_log.is_win = (pending_log.predicted_size == act_size)
-        else:
-            pred_size = 'Small' if num >= 5 else 'Big'
-            log = PredictionLog(
-                issue_number=issue,
-                predicted_size=pred_size,
-                confidence=94.5,
-                actual_size=act_size,
-                is_win=(pred_size == act_size),
-                martingale_level=1,
-                pattern_detected="Quantum Neural Engine"
-            )
-            db.add(log)
             
         # 3. Update pending PredictionAudit entry if exists
         audit_entry = db.query(PredictionAudit).filter(PredictionAudit.sequence_no == issue).first()
@@ -398,4 +382,3 @@ def save_ai_brain_state(db, model_name, generation, total_samples, weights_json,
     except Exception as e:
         db.rollback()
         print("Save brain note:", e)
-

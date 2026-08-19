@@ -121,6 +121,8 @@ class GlobalBrain:
             print(f"Failed to save brain state: {e}")
 
 _global_brain = GlobalBrain()
+OUTCOME_LOOKBACK_DAYS = int(os.environ.get("EVOSEQ_LOOKBACK_DAYS", "30"))
+MAX_TRAINING_OUTCOMES = int(os.environ.get("EVOSEQ_MAX_TRAINING_OUTCOMES", "50000"))
 
 class DeepPyTorchWrapper(BaseModel):
     def __init__(self, pytorch_model):
@@ -145,7 +147,7 @@ def run_evoseq_cycle(history, db=None):
     # Enhanced: Fetch recent data from Supabase for better learning
     try:
         session = SessionLocal()
-        cutoff_date = datetime.utcnow() - timedelta(days=7)
+        cutoff_date = datetime.utcnow() - timedelta(days=OUTCOME_LOOKBACK_DAYS)
         
         # Fetch recent outcomes from Supabase
         supabase_data = session.query(Outcome).filter(
@@ -154,6 +156,8 @@ def run_evoseq_cycle(history, db=None):
         
         if supabase_data:
             # Convert Supabase data to history format
+            # Bound training cost while retaining a multi-day rolling memory.
+            supabase_data = supabase_data[-MAX_TRAINING_OUTCOMES:]
             supabase_history = [str(item.digit) for item in supabase_data]
             print(f"[Supabase] Fetched {len(supabase_history)} records from Supabase for enhanced learning")
             

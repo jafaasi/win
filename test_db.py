@@ -1,5 +1,7 @@
 import os
-os.environ["DATABASE_URL"] = "postgresql://postgres:rodrE0%2Dfyvnov%2Dgyvzuz@db.zyryxnifpduwsulglhdq.supabase.co:5432/postgres"
+
+if not os.environ.get("DATABASE_URL"):
+    raise RuntimeError("DATABASE_URL is required to run this database check.")
 
 from backend.database import SessionLocal, Draw, PredictionLog
 

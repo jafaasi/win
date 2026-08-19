@@ -32,14 +32,14 @@ except Exception as e:
 # Database connection
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
-    DATABASE_URL = "postgresql://postgres.zyryxnifpduwsulglhdq:JafAasi1517@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres"
+    raise RuntimeError("DATABASE_URL is required. Set it in /etc/win/win.env on AWS.")
 
 if DATABASE_URL:
     DATABASE_URL = DATABASE_URL.strip().strip('"').strip("'").strip()
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-logger.info(f"Connecting to database: {DATABASE_URL[:50]}...")
+logger.info("Connecting using DATABASE_URL")
 
 
 def fetch_comprehensive_training_data(days=7):

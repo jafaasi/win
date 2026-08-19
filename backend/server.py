@@ -23,7 +23,7 @@ sys.stdout.reconfigure(line_buffering=True)
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.database import SessionLocal, AIBrainState, save_live_draws
+from backend.database import SessionLocal, AIBrainState, PredictionAudit, save_live_draws
 
 app = FastAPI(title="WinGo Database Gateway - Free Tier Optimized")
 
@@ -73,6 +73,26 @@ def get_api_state():
                 return {"error": "Invalid prediction data", "status": "no_prediction"}
         else:
             return {"error": "No prediction available yet", "status": "waiting_for_local_engine"}
+    finally:
+        db.close()
+
+@app.get("/api/metrics")
+def prediction_metrics():
+    """Return outcome-based metrics from forecasts that have been reconciled."""
+    db = SessionLocal()
+    try:
+        rows = db.query(PredictionAudit).filter(PredictionAudit.actual_size.isnot(None)).all()
+        if not rows:
+            return {"resolved_predictions": 0, "status": "collecting_evidence"}
+        accuracy = sum(1 for row in rows if row.is_correct) / len(rows)
+        brier_rows = [row.brier_score for row in rows if row.brier_score is not None]
+        log_loss_rows = [row.log_loss for row in rows if row.log_loss is not None]
+        return {
+            "resolved_predictions": len(rows),
+            "directional_accuracy": round(accuracy, 4),
+            "brier_score": round(sum(brier_rows) / len(brier_rows), 4) if brier_rows else None,
+            "log_loss": round(sum(log_loss_rows) / len(log_loss_rows), 4) if log_loss_rows else None,
+        }
     finally:
         db.close()
 

@@ -14,6 +14,9 @@ from backend.database import SessionLocal, save_live_draws, Outcome
 from datetime import datetime, timedelta
 
 API_ENDPOINT = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
+# Keep enough verified outcomes for the ensemble to learn changing behavior
+# across days. Set a smaller value only when storage limits require it.
+OUTCOME_RETENTION_DAYS = int(os.environ.get("OUTCOME_RETENTION_DAYS", "30"))
 
 async def fetch_wingo_draws():
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -27,8 +30,9 @@ async def fetch_wingo_draws():
             print(f"Fetch Note: {e}")
     return []
 
-async def cleanup_old_data(days_old=2):
+async def cleanup_old_data(days_old=None):
     """Automatic cleanup of old data from Supabase to manage storage"""
+    days_old = OUTCOME_RETENTION_DAYS if days_old is None else days_old
     try:
         session = SessionLocal()
         cutoff_date = datetime.utcnow() - timedelta(days=days_old)
@@ -78,7 +82,7 @@ async def run_scraper_daemon(max_duration_seconds=18000):
         try:
             # Run cleanup every 24 hours
             if time.time() - last_cleanup_time > 86400:  # 24 hours
-                await cleanup_old_data(days_old=2)
+                await cleanup_old_data()
                 last_cleanup_time = time.time()
             
             draws = await fetch_wingo_draws()
@@ -97,7 +101,7 @@ async def run_scraper_daemon(max_duration_seconds=18000):
                         
                         # Periodically clean up old data (every 1000 draws)
                         if draws_collected % 1000 == 0:
-                            await cleanup_old_data(days_old=2)
+                            await cleanup_old_data()
                     except Exception as e:
                         print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] ⚠️ Database sync error: {e}")
                     finally:
@@ -161,4 +165,3 @@ if __name__ == "__main__":
         print("💾 Free Tier Optimized: Stores to cloud database, runs locally", flush=True)
         print("⏱️  Poll interval: 2.0 seconds for database efficiency", flush=True)
         uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
-

@@ -4,7 +4,8 @@
 Telegram bot integration for WinGo predictions - provides predictions via Telegram commands without web connectivity issues.
 
 ## Prerequisites
-- Telegram bot token: `8796895729:AAHC1UiRlAdn2Ha87_mG3RDLwaUZG5Qcr40`
+- Set `TELEGRAM_BOT_TOKEN` in your environment before starting the bot. Do not
+  put a Telegram token in this file or commit it to the repository.
 - AWS EC2 instance with API running on port 8000
 - Python 3.8+
 

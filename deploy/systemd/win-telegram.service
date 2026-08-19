@@ -1,0 +1,18 @@
+[Unit]
+Description=WinGo Telegram prediction bot
+Wants=network-online.target
+After=network-online.target win-api.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/win
+EnvironmentFile=/etc/win/win.env
+Environment=PREDICTION_API_URL=http://127.0.0.1:8000/api/state
+ExecStart=/home/ubuntu/win/.venv/bin/python3 /home/ubuntu/win/telegram_bot.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

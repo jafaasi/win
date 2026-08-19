@@ -1,0 +1,17 @@
+[Unit]
+Description=WinGo prediction API
+Wants=network-online.target
+After=network-online.target win-ai.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/win
+EnvironmentFile=/etc/win/win.env
+ExecStart=/home/ubuntu/win/.venv/bin/uvicorn backend.server:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

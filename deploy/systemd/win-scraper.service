@@ -1,0 +1,17 @@
+[Unit]
+Description=WinGo outcome collector
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/win
+EnvironmentFile=/etc/win/win.env
+ExecStart=/home/ubuntu/win/.venv/bin/python3 /home/ubuntu/win/run_local_scraper.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

@@ -5,15 +5,29 @@ Provides predictions via Telegram commands and automatic updates
 """
 
 import asyncio
+from html import escape
 import logging
+import os
 import httpx
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from backend.telegram_card import render_forecast_card
+
+try:
+    from dotenv import load_dotenv
+    project_dir = os.path.dirname(os.path.abspath(__file__))
+    load_dotenv(os.path.join(project_dir, ".env"))
+    load_dotenv(os.path.join(project_dir, "backend", ".env"))
+except ImportError:
+    pass
 
 # Configuration
-BOT_TOKEN = "8796895729:AAHC1UiRlAdn2Ha87_mG3RDLwaUZG5Qcr40"
-API_URL = "http://localhost:8000/api/state"
-WINGO_API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+API_URL = os.environ.get("PREDICTION_API_URL", "http://localhost:8000/api/state")
+METRICS_API_URL = os.environ.get(
+    "PREDICTION_METRICS_API_URL", f"{API_URL.rsplit('/', 1)[0]}/metrics"
+)
+WINGO_API_URL = os.environ.get("WINGO_API_URL", "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json")
 CHECK_INTERVAL = 5  # Check for new predictions every 5 seconds
 
 # Store for subscribed users and last prediction
@@ -29,11 +43,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def get_prediction():
+async def get_prediction():
     """Fetch prediction from local API"""
     try:
-        with httpx.Client(timeout=5) as client:
-            response = client.get(API_URL)
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.get(API_URL)
             if response.status_code == 200:
                 return response.json()
             else:
@@ -44,11 +58,24 @@ def get_prediction():
         return None
 
 
-def get_wingo_results():
+async def get_metrics():
+    """Fetch outcome-based intelligence metrics for the Telegram dashboard."""
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.get(METRICS_API_URL)
+            if response.status_code == 200:
+                return response.json()
+            logger.error(f"Metrics API returned status {response.status_code}")
+    except Exception as e:
+        logger.error(f"Error fetching metrics: {e}")
+    return None
+
+
+async def get_wingo_results():
     """Fetch recent results from WinGo API"""
     try:
-        with httpx.Client(timeout=5) as client:
-            response = client.get(WINGO_API_URL)
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.get(WINGO_API_URL)
             if response.status_code == 200:
                 return response.json()
             else:
@@ -59,7 +86,7 @@ def get_wingo_results():
         return None
 
 
-def check_win_loss(previous_prediction):
+async def check_win_loss(previous_prediction):
     """Check if previous prediction was correct by fetching actual results"""
     if not previous_prediction:
         return None
@@ -70,7 +97,7 @@ def check_win_loss(previous_prediction):
         predicted_result = previous_prediction.get('prediction', '').lower()
         
         # Fetch actual results from WinGo API
-        wingo_data = get_wingo_results()
+        wingo_data = await get_wingo_results()
         if not wingo_data:
             return None
         
@@ -103,121 +130,294 @@ def check_win_loss(previous_prediction):
         return None
 
 
+def main_keyboard() -> InlineKeyboardMarkup:
+    """Premium Telegram navigation for the live intelligence dashboard."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔄 Refresh forecast", callback_data="forecast"),
+            InlineKeyboardButton("📊 Live metrics", callback_data="metrics"),
+        ],
+        [
+            InlineKeyboardButton("🟢 System status", callback_data="status"),
+            InlineKeyboardButton("🧬 How it learns", callback_data="learn"),
+        ],
+        [InlineKeyboardButton("🔔 Enable updates", callback_data="subscribe")],
+    ])
+
+
+def back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton("← Back to forecast", callback_data="forecast")]])
+
+
+def premium_help_message() -> str:
+    return """
+<b>◈ EVOSEQ GUIDE</b>
+━━━━━━━━━━━━━━━━━━
+
+<b>/predict</b>  Live forecast card
+<b>/stats</b>    Outcome-based performance metrics
+<b>/status</b>   Service health
+<b>/subscribe</b>  Enable automatic updates
+<b>/unsubscribe</b>  Pause automatic updates
+
+<b>How confidence works</b>
+The engine records every forecast before its outcome exists, then learns from resolved database results. Confidence is calibrated from that historical evidence.
+
+<i>For entertainment only. A model cannot guarantee a random outcome.</i>
+    """.strip()
+
+
+def _text(value, fallback="—") -> str:
+    """Escape dynamic API data before placing it in Telegram HTML."""
+    if value is None or value == "":
+        return fallback
+    return escape(str(value))
+
+
+def _percentage(value) -> str:
+    try:
+        return f"{float(value):.1f}%"
+    except (TypeError, ValueError):
+        return "—"
+
+
 def format_prediction_message(data, previous_result=None):
-    """Format prediction data for Telegram message"""
+    """Render a compact, premium-style forecast card for Telegram."""
     if not data:
-        return "❌ Error: Unable to fetch prediction"
+        return "<b>◈ EVOSEQ</b>\n\n⚠️ <b>Live forecast unavailable</b>\nThe intelligence service is reconnecting."
     
     try:
-        prediction = data.get('prediction', 'N/A')
-        confidence = data.get('confidence', 0)
-        target_num = data.get('targetNum', 'N/A')
-        hedge_num = data.get('hedgeNum', 'N/A')
-        current_issue = data.get('currentIssue', 'N/A')
-        next_issue = data.get('nextIssue', 'N/A')
-        pattern = data.get('patternName', 'N/A')
-        source = data.get('source', 'N/A')
+        prediction = _text(data.get('prediction'))
+        confidence = _percentage(data.get('confidence'))
+        target_num = _text(data.get('targetNum'))
+        hedge_num = _text(data.get('hedgeNum'))
+        current_issue = _text(data.get('currentIssue'))
+        next_issue = _text(data.get('nextIssue'))
+        pattern = _text(data.get('patternName'))
+        evidence = data.get('evidence', {})
+        is_validated = evidence.get('validated_edge', False)
+        state_label = "<b>VALIDATED EDGE</b>" if is_validated else "<b>CONTINUOUS LEARNING</b>"
+        state_emoji = "✦" if is_validated else "◌"
+        side_emoji = "🔵" if prediction.lower() == "big" else "🟡" if prediction.lower() == "small" else "⚪"
+        evidence_line = (
+            f"<b>Evidence</b>  {_text(evidence.get('reason', 'COLLECTING'))}\n"
+            f"<b>Resolved forecasts</b>  {_text(evidence.get('resolved_predictions', 0))}"
+        )
         
         # Add win/loss tracking if available
         result_info = ""
         if previous_result:
             result_emoji = "✅" if previous_result['won'] else "❌"
             result_text = "WON" if previous_result['won'] else "LOST"
-            predicted = previous_result.get('predicted', 'N/A').upper()
-            actual = previous_result.get('actual', 'N/A').upper()
-            number = previous_result.get('number', 'N/A')
-            result_info = f"\n{result_emoji} <b>Previous Result</b>: {result_text}\n📊 <b>Issue</b>: {previous_result['issue']}\n🎯 <b>Predicted</b>: {predicted}\n🎲 <b>Actual</b>: {actual} (Number: {number})"
+            predicted = _text(previous_result.get('predicted', 'N/A')).upper()
+            actual = _text(previous_result.get('actual', 'N/A')).upper()
+            number = _text(previous_result.get('number', 'N/A'))
+            result_info = f"\n\n<b>LAST RESULT</b>\n{result_emoji} {result_text}  •  {_text(previous_result.get('issue'))}\nPredicted {predicted}  |  Actual {actual} ({number})"
         
         message = f"""
-🎯 <b>WinGo Prediction</b>
+<b>◈ EVOSEQ</b>  <i>LIVE INTELLIGENCE</i>
+━━━━━━━━━━━━━━━━━━
+{state_emoji} {state_label}
 
-📊 <b>Prediction</b>: {prediction}
-🎲 <b>Target Number</b>: {target_num}
-🛡️ <b>Hedge Number</b>: {hedge_num}
-📈 <b>Confidence</b>: {confidence}%
+<b>FORECAST CARD</b>
+{side_emoji} <b>{prediction.upper()}</b>   <b>Confidence</b> {confidence}
+<b>Target</b>  {target_num}     <b>Hedge</b>  {hedge_num}
 
-🔢 <b>Current Issue</b>: {current_issue}
-➡️ <b>Next Issue</b>: {next_issue}
+<b>ROUND</b>
+Current  <code>{current_issue}</code>
+Next     <code>{next_issue}</code>
 {result_info}
-🧬 <b>Pattern</b>: {pattern}
-🤖 <b>Source</b>: {source}
 
-⏰ <b>Generated by EVOSEQ AI Engine</b>
+<b>INTELLIGENCE</b>
+{evidence_line}
+<b>Active model</b>  {pattern}
+
+<i>Outcome-calibrated • refreshed live</i>
         """
         return message.strip()
     except Exception as e:
         logger.error(f"Error formatting message: {e}")
-        return "❌ Error: Unable to format prediction"
+        return "<b>◈ EVOSEQ</b>\n\n⚠️ <b>Unable to format the live forecast.</b>"
+
+
+def format_forecast_caption(data: dict, previous_result=None) -> str:
+    """Short companion caption for the visual forecast card."""
+    evidence = data.get("evidence") or {}
+    learning_state = "Validated historical edge" if evidence.get("validated_edge") else "Continuous day-by-day learning"
+    caption = f"""
+<b>◈ EVOSEQ • LIVE FORECAST</b>
+{_text(learning_state)}
+
+Next issue: <code>{_text(data.get('nextIssue'))}</code>
+Evidence: {_text(evidence.get('reason', 'COLLECTING'))}
+Tap below to refresh or view outcome-based metrics.
+    """.strip()
+    if previous_result:
+        outcome = "WON" if previous_result.get("won") else "LOST"
+        caption += f"\nPrevious forecast: <b>{outcome}</b>"
+    return caption
+
+
+async def reply_with_forecast(message, data: dict | None, previous_result=None):
+    """Deliver a visual card, with a rich-text fallback during package upgrades."""
+    if data:
+        try:
+            card = render_forecast_card(data, previous_result)
+            if card:
+                return await message.reply_photo(
+                    photo=card,
+                    caption=format_forecast_caption(data, previous_result),
+                    parse_mode="HTML",
+                    reply_markup=main_keyboard(),
+                )
+        except Exception as error:
+            logger.exception("Forecast card rendering failed: %s", error)
+    return await message.reply_text(
+        format_prediction_message(data, previous_result),
+        parse_mode="HTML",
+        reply_markup=main_keyboard(),
+    )
+
+
+def format_metrics_message(metrics) -> str:
+    """Render outcome-based model performance as a Telegram dashboard card."""
+    if not metrics:
+        return "<b>◈ LIVE METRICS</b>\n\n⚠️ Metrics are temporarily unavailable."
+    if metrics.get("resolved_predictions", 0) == 0:
+        return """
+<b>◈ LIVE METRICS</b>
+━━━━━━━━━━━━━━━━━━
+<b>Collecting evidence</b>
+
+The model has no reconciled forecasts yet. Metrics appear automatically after outcomes resolve.
+        """.strip()
+    accuracy = metrics.get("directional_accuracy")
+    accuracy_text = f"{float(accuracy) * 100:.1f}%" if isinstance(accuracy, (int, float)) else "—"
+    brier = metrics.get("brier_score")
+    loss = metrics.get("log_loss")
+    return f"""
+<b>◈ LIVE METRICS</b>
+━━━━━━━━━━━━━━━━━━
+
+<b>Resolved forecasts</b>  {_text(metrics.get('resolved_predictions'))}
+<b>Directional accuracy</b> {_text(accuracy_text)}
+<b>Brier score</b>         {_text(f'{float(brier):.4f}' if isinstance(brier, (int, float)) else '—')}
+<b>Log loss</b>            {_text(f'{float(loss):.4f}' if isinstance(loss, (int, float)) else '—')}
+
+<i>Metrics use only forecasts with a known outcome.</i>
+    """.strip()
+
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    metrics = await get_metrics()
+    await update.message.reply_text(
+        format_metrics_message(metrics), parse_mode="HTML", reply_markup=main_keyboard()
+    )
+
+
+async def dashboard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Serve dashboard controls without asking the user to type commands."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer("Updating dashboard…")
+
+    if query.data == "forecast":
+        prediction = await get_prediction()
+        await query.edit_message_text(
+            format_prediction_message(prediction), parse_mode="HTML", reply_markup=main_keyboard()
+        )
+    elif query.data == "metrics":
+        await query.edit_message_text(
+            format_metrics_message(await get_metrics()), parse_mode="HTML", reply_markup=back_keyboard()
+        )
+    elif query.data == "status":
+        prediction = await get_prediction()
+        online = prediction is not None and not prediction.get("error")
+        status = "🟢 <b>All systems online</b>" if online else "🔴 <b>Forecast API unavailable</b>"
+        issue = _text(prediction.get("currentIssue")) if online else "—"
+        text = f"""
+<b>◈ SYSTEM STATUS</b>
+━━━━━━━━━━━━━━━━━━
+{status}
+
+<b>Latest issue</b>  <code>{issue}</code>
+<b>Runtime</b>       AWS EC2
+<b>Delivery</b>      Telegram live updates
+        """.strip()
+        await query.edit_message_text(text, parse_mode="HTML", reply_markup=back_keyboard())
+    elif query.data == "learn":
+        await query.edit_message_text(premium_help_message(), parse_mode="HTML", reply_markup=back_keyboard())
+    elif query.data == "subscribe":
+        subscribed_users.add(query.message.chat.id)
+        await query.edit_message_text(
+            "<b>◈ UPDATES ENABLED</b>\n\n🔔 You’ll receive each new live forecast automatically.",
+            parse_mode="HTML", reply_markup=back_keyboard()
+        )
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /start command"""
+    """Open the premium live-intelligence dashboard."""
     user_id = update.effective_chat.id
     subscribed_users.add(user_id)
     
     welcome_message = """
-🎰 <b>WinGo Prediction Bot</b>
+<b>◈ WINGO • EVOSEQ</b>
+<i>Adaptive prediction intelligence</i>
+━━━━━━━━━━━━━━━━━━
 
-Welcome! I provide AI-powered predictions for WinGo lottery.
+Welcome. Your live forecast dashboard is ready.
 
-✅ <b>You are now subscribed to automatic prediction updates!</b>
+🔔 <b>Automatic updates enabled</b>
+Every resolved outcome is added to the evolving intelligence memory.
 
-<b>Commands:</b>
-/predict - Get current prediction
-/status - Check bot status
-/subscribe - Subscribe to automatic updates
-/unsubscribe - Unsubscribe from automatic updates
-/help - Show this help message
+Use the controls below for your forecast, live evidence metrics, and system health.
 
-⚠️ <b>Disclaimer</b>: Predictions are for entertainment purposes only. Not financial advice.
+<i>For entertainment only. Outcomes can be random.</i>
     """
-    await update.message.reply_text(welcome_message.strip(), parse_mode='HTML')
+    await update.message.reply_text(
+        welcome_message.strip(), parse_mode='HTML', reply_markup=main_keyboard()
+    )
 
 
 async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /predict command"""
-    await update.message.reply_text("🔄 Fetching prediction...")
-    
-    # Get prediction from API
-    prediction_data = get_prediction()
-    
-    # Format and send
+    prediction_data = await get_prediction()
     message = format_prediction_message(prediction_data)
-    await update.message.reply_text(message, parse_mode='HTML')
+    await update.message.reply_text(message, parse_mode='HTML', reply_markup=main_keyboard())
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /status command"""
     try:
-        prediction_data = get_prediction()
+        prediction_data = await get_prediction()
         if prediction_data:
             status = "✅ Online and functioning"
             last_issue = prediction_data.get('currentIssue', 'N/A')
             confidence = prediction_data.get('confidence', 0)
             message = f"""
-📊 <b>Bot Status</b>
-
+<b>◈ SYSTEM STATUS</b>
+━━━━━━━━━━━━━━━━━━
 {status}
 
-🔢 <b>Last Issue</b>: {last_issue}
-📈 <b>Last Confidence</b>: {confidence}%
-
-🤖 <b>EVOSEQ Engine</b>: Running
-📍 <b>Server</b>: AWS EC2
+<b>Latest issue</b>  <code>{_text(last_issue)}</code>
+<b>Confidence</b>    {_percentage(confidence)}
+<b>Engine</b>        EVOSEQ evolving ensemble
+<b>Runtime</b>       AWS EC2
             """
         else:
             status = "❌ API Error"
             message = f"""
-📊 <b>Bot Status</b>
-
+<b>◈ SYSTEM STATUS</b>
+━━━━━━━━━━━━━━━━━━
 {status}
 
-⚠️ Unable to connect to prediction API
+⚠️ Unable to connect to the prediction API.
             """
     except Exception as e:
         message = f"❌ Error: {str(e)}"
     
-    await update.message.reply_text(message.strip(), parse_mode='HTML')
+    await update.message.reply_text(message.strip(), parse_mode='HTML', reply_markup=main_keyboard())
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -236,25 +436,30 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 <b>Features:</b>
 • Real-time AI predictions
 • Automatic updates when new predictions available
-• Confidence scores
+• Continuous day-by-day confidence learning
 • Pattern analysis
 • Multiple model ensemble
 
 <b>About:</b>
 Powered by EVOSEQ - Evolving Intelligence Engine
-Uses Transformer, Mamba, and S4D models
-Statistical analysis and pattern recognition
+Uses an evolving ensemble plus outcome-based confidence calibration.
+Every resolved database outcome improves the next forecast.
 
-⚠️ <b>Disclaimer</b>: For entertainment purposes only.
+    ⚠️ <b>Disclaimer</b>: For entertainment purposes only.
     """
-    await update.message.reply_text(help_message.strip(), parse_mode='HTML')
+    await update.message.reply_text(
+        premium_help_message(), parse_mode='HTML', reply_markup=main_keyboard()
+    )
 
 
 async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /subscribe command"""
     user_id = update.effective_chat.id
     subscribed_users.add(user_id)
-    await update.message.reply_text("✅ You are now subscribed to automatic prediction updates!")
+    await update.message.reply_text(
+        "🔔 <b>Updates enabled</b>\nYou’ll receive the next live forecast automatically.",
+        parse_mode='HTML', reply_markup=main_keyboard()
+    )
 
 
 async def unsubscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -262,9 +467,12 @@ async def unsubscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_chat.id
     if user_id in subscribed_users:
         subscribed_users.remove(user_id)
-        await update.message.reply_text("❌ You have been unsubscribed from automatic updates.")
+        await update.message.reply_text(
+            "🔕 <b>Updates paused</b>\nUse /subscribe whenever you want live forecasts again.",
+            parse_mode="HTML", reply_markup=main_keyboard()
+        )
     else:
-        await update.message.reply_text("You are not subscribed to automatic updates.")
+        await update.message.reply_text("🔕 Updates are already paused.", reply_markup=main_keyboard())
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -279,7 +487,7 @@ async def check_and_send_predictions(context: ContextTypes.DEFAULT_TYPE):
     global last_prediction_issue, last_prediction
     
     try:
-        prediction_data = get_prediction()
+        prediction_data = await get_prediction()
         if not prediction_data:
             return
         
@@ -295,7 +503,7 @@ async def check_and_send_predictions(context: ContextTypes.DEFAULT_TYPE):
             # Check win/loss for previous prediction
             previous_result = None
             if last_prediction:
-                previous_result = check_win_loss(last_prediction)
+                previous_result = await check_win_loss(last_prediction)
                 if previous_result:
                     result_text = "WON" if previous_result['won'] else "LOST"
                     logger.info(f"Previous prediction {result_text}: {previous_result['issue']}")
@@ -308,7 +516,8 @@ async def check_and_send_predictions(context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.send_message(
                         chat_id=user_id,
                         text=message,
-                        parse_mode='HTML'
+                        parse_mode='HTML',
+                        reply_markup=main_keyboard(),
                     )
                     logger.info(f"Sent prediction to user {user_id}")
                 except Exception as e:
@@ -342,16 +551,20 @@ async def prediction_updater(bot):
 
 async def main():
     """Start the bot"""
+    if not BOT_TOKEN:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN is required. Put it in your environment, not source code.")
     # Create application
     application = Application.builder().token(BOT_TOKEN).build()
     
     # Add command handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("predict", predict_command))
+    application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("subscribe", subscribe_command))
     application.add_handler(CommandHandler("unsubscribe", unsubscribe_command))
+    application.add_handler(CallbackQueryHandler(dashboard_callback))
     
     # Add error handler
     application.add_error_handler(error_handler)
@@ -361,19 +574,18 @@ async def main():
     
     # Send immediate prediction on startup
     try:
-        initial_prediction = get_prediction()
+        initial_prediction = await get_prediction()
         if initial_prediction:
             logger.info(f"Initial prediction fetched: {initial_prediction.get('currentIssue')}")
     except Exception as e:
         logger.error(f"Error fetching initial prediction: {e}")
     
-    # Start background prediction updater
-    asyncio.create_task(prediction_updater(application.bot))
-    
-    # Run the bot
+    # Run the bot before scheduling network work.  This avoids a race where
+    # the background updater tries to use an uninitialized Telegram client.
     await application.initialize()
     await application.start()
     await application.updater.start_polling()
+    updater_task = asyncio.create_task(prediction_updater(application.bot))
     
     # Keep the bot running
     try:
@@ -381,6 +593,11 @@ async def main():
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     finally:
+        updater_task.cancel()
+        try:
+            await updater_task
+        except asyncio.CancelledError:
+            pass
         await application.updater.stop()
         await application.stop()
         await application.shutdown()
@@ -388,7 +605,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-if __name__ == "__main__":
-    main()

@@ -19,8 +19,12 @@ except Exception as e:
 # Ensure local imports work in all environments
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.database import SessionLocal, Draw, Outcome, AIBrainState, save_ai_brain_state
+from backend.database import (
+    SessionLocal, Draw, Outcome, AIBrainState, save_ai_brain_state,
+    save_prediction, save_prediction_audit,
+)
 from backend.evoseq_loop import run_evoseq_cycle
+from backend.prediction_intelligence import EvidenceGate
 
 # ============================================================================
 # 🧠 BEAST MODE: Continuous Neuroevolution with Multi-Model Ensemble
@@ -36,8 +40,9 @@ class BeastPredictor:
         self.model_lineage = []
         self.performance_history = []
         self.adaptation_factor = 1.0
+        self.evidence_gate = EvidenceGate()
         
-    def evolve_prediction(self, history, registry_state):
+    def evolve_prediction(self, history, registry_state, db):
         """
         Combine raw EVOSEQ output with meta-learning for multi-horizon confidence with enhanced accuracy.
         """
@@ -157,7 +162,7 @@ class BeastPredictor:
         
         loophole_insight = f"Enhanced Beast Neuroevolution. " + " | ".join(insight_factors)
         
-        return {
+        result = {
             "prediction": prediction,
             "confidence": round(calibrated_conf, 1),
             "targetNum": targetNum,
@@ -201,6 +206,20 @@ class BeastPredictor:
             ],
             "adaptive_tuning": adaptive_tuning
         }
+        # Every issue receives a forecast. The database's resolved outcomes
+        # continuously recalibrate confidence, which makes learning cumulative
+        # across days without hiding any prediction from Telegram.
+        evidence = self.evidence_gate.assess(db, prob_big)
+        result["rawConfidence"] = round(float(result["confidence"]), 1)
+        result["confidence"] = round(evidence["confidence"] * 100, 1)
+        result["action"] = evidence["action"]
+        result["evidence"] = evidence
+        result["strikeQuality"] = "VALIDATED" if evidence["validated_edge"] else "LEARNING"
+        result["loopholeInsight"] = (
+            f"{result['loopholeInsight']} | Evidence: {evidence['reason']} "
+            f"(n={evidence['resolved_predictions']}, Brier Δ={evidence['brier_improvement']:.4f})"
+        )
+        return result
     
     def _compute_next_distribution(self, context, lookahead=1):
         """Estimate next K values' probability distribution."""
@@ -262,7 +281,7 @@ def run_local_engine():
                         registry_state = run_evoseq_cycle(history, db)
                         
                         # 3. Apply Beast-Mode Multi-Horizon Intelligence
-                        ai_result = beast.evolve_prediction(history, registry_state)
+                        ai_result = beast.evolve_prediction(history, registry_state, db)
                         
                         # Only update if we have a valid prediction with confidence
                         if ai_result and ai_result.get("confidence") and ai_result.get("prediction"):
@@ -286,6 +305,18 @@ def run_local_engine():
                                 "nextDigit": ai_result["targetNum"],
                                 "nextSide": ai_result["prediction"]
                             }
+
+                            # Record the forecast before the result exists so
+                            # later reconciliation is a genuine out-of-sample test.
+                            save_prediction(
+                                db, next_issue, ai_result["prediction"], ai_result["confidence"], ai_result["patternName"]
+                            )
+                            save_prediction_audit(
+                                db, next_issue, ai_result["championGenome"],
+                                ai_result["probability_big"], ai_result["targetNum"],
+                                ai_result["entropy"], ai_result["driftLevel"],
+                                ai_result["driftScore"], ai_result["nullAdvantage"],
+                            )
                             
                             conf = ai_result["confidence"]
                             print(f"[BEAST] ✨ PREDICTION: {ai_result['prediction']} ({conf}%) for Issue #{next_issue}")

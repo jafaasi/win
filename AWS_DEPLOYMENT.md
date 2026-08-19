@@ -8,7 +8,7 @@ This guide shows how to deploy your EVOSEQ prediction system to AWS EC2 and run 
 AWS EC2 (m7i-flex.large)
 ├── Ubuntu 22.04 LTS
 ├── Python 3.10+
-├── EVOSEQ Engine (scraper + AI + API)
+├── EVOSEQ Engine (scraper + AI + API + Telegram bot)
 ├── Systemd (keep processes running)
 └── Uvicorn (FastAPI server)
 
@@ -85,19 +85,43 @@ pip install fastapi uvicorn sqlalchemy psycopg2-binary numpy pandas scikit-learn
 ## Step 6: Configure Environment Variables
 
 ```bash
-# Create .env file
-nano .env
+# Create the systemd-only environment file
+sudo install -d -m 700 /etc/win
+sudo nano /etc/win/win.env
 ```
 
 Add the following:
 ```env
 DATABASE_URL=postgresql://user:password@host:port/database
-# Add your Supabase credentials here
+TELEGRAM_BOT_TOKEN=replace-with-a-new-token-from-botfather
+PREDICTION_API_URL=http://127.0.0.1:8000/api/state
+OUTCOME_RETENTION_DAYS=30
+EVOSEQ_LOOKBACK_DAYS=30
+EVOSEQ_MAX_TRAINING_OUTCOMES=50000
 ```
 
-Save and exit (Ctrl+X, Y, Enter).
+Save and exit, then protect it:
+
+```bash
+sudo chmod 600 /etc/win/win.env
+```
+
+Do not put this file in Git. Rotate the Telegram token if it was previously committed.
 
 ## Step 7: Create Systemd Service for Scraper
+
+The repository includes production service definitions in `deploy/systemd/`.
+Install all four instead of manually copying old service examples:
+
+```bash
+sudo cp deploy/systemd/win-scraper.service /etc/systemd/system/
+sudo cp deploy/systemd/win-ai.service /etc/systemd/system/
+sudo cp deploy/systemd/win-api.service /etc/systemd/system/
+sudo cp deploy/systemd/win-telegram.service /etc/systemd/system/
+sudo systemctl daemon-reload
+```
+
+The remainder of this guide explains what each service does.
 
 ```bash
 sudo nano /etc/systemd/system/win-scraper.service
@@ -182,11 +206,13 @@ sudo systemctl daemon-reload
 sudo systemctl enable win-scraper
 sudo systemctl enable win-ai
 sudo systemctl enable win-api
+sudo systemctl enable win-telegram
 
 # Start services
 sudo systemctl start win-scraper
 sudo systemctl start win-ai
 sudo systemctl start win-api
+sudo systemctl start win-telegram
 ```
 
 ## Step 11: Check Service Status
@@ -196,11 +222,13 @@ sudo systemctl start win-api
 sudo systemctl status win-scraper
 sudo systemctl status win-ai
 sudo systemctl status win-api
+sudo systemctl status win-telegram
 
 # View logs
 sudo journalctl -u win-scraper -f
 sudo journalctl -u win-ai -f
 sudo journalctl -u win-api -f
+sudo journalctl -u win-telegram -f
 ```
 
 ## Step 12: Update Vercel Frontend API URL
