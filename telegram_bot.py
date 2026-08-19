@@ -131,39 +131,29 @@ async def check_win_loss(previous_prediction):
 
 
 def main_keyboard() -> InlineKeyboardMarkup:
-    """Premium Telegram navigation for the live intelligence dashboard."""
+    """Minimalist keyboard for extraordinary intelligence predictions."""
     return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🔄 Refresh forecast", callback_data="forecast"),
-            InlineKeyboardButton("📊 Live metrics", callback_data="metrics"),
-        ],
-        [
-            InlineKeyboardButton("🟢 System status", callback_data="status"),
-            InlineKeyboardButton("🧬 How it learns", callback_data="learn"),
-        ],
-        [InlineKeyboardButton("🔔 Enable updates", callback_data="subscribe")],
+        [InlineKeyboardButton("🔮 Next Prediction", callback_data="forecast")],
+        [InlineKeyboardButton("📊 Accuracy Stats", callback_data="metrics")],
     ])
 
 
 def back_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[InlineKeyboardButton("← Back to forecast", callback_data="forecast")]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("← Back", callback_data="forecast")]])
 
 
 def premium_help_message() -> str:
     return """
-<b>◈ EVOSEQ GUIDE</b>
+<b>◈ EXTRAORDINARY INTELLIGENCE</b>
 ━━━━━━━━━━━━━━━━━━
 
-<b>/predict</b>  Live forecast card
-<b>/stats</b>    Outcome-based performance metrics
-<b>/status</b>   Service health
-<b>/subscribe</b>  Enable automatic updates
-<b>/unsubscribe</b>  Pause automatic updates
+<b>/predict</b>  Next AI forecast
+<b>/stats</b>    Win rate & accuracy
 
-<b>How confidence works</b>
-The engine records every forecast before its outcome exists, then learns from resolved database results. Confidence is calibrated from that historical evidence.
+The engine evolves daily from every outcome in the database.
+Confidence is calibrated from resolved predictions only.
 
-<i>For entertainment only. A model cannot guarantee a random outcome.</i>
+<i>Entertainment purposes. Outcomes may be random.</i>
     """.strip()
 
 
@@ -182,118 +172,92 @@ def _percentage(value) -> str:
 
 
 def format_prediction_message(data, previous_result=None):
-    """Render a compact, premium-style forecast card for Telegram."""
+    """Render a simple, powerful extraordinary intelligence forecast."""
     if not data:
-        return "<b>◈ EVOSEQ</b>\n\n⚠️ <b>Live forecast unavailable</b>\nThe intelligence service is reconnecting."
+        return "<b>◈ EXTRAORDINARY INTELLIGENCE</b>\n\n⚠️ <b>Analyzing market...</b>\nPrediction engine is recalibrating."
     
     try:
         prediction = _text(data.get('prediction'))
         confidence = _percentage(data.get('confidence'))
         target_num = _text(data.get('targetNum'))
         hedge_num = _text(data.get('hedgeNum'))
-        current_issue = _text(data.get('currentIssue'))
         next_issue = _text(data.get('nextIssue'))
-        pattern = _text(data.get('patternName'))
         strike_quality = _text(data.get('strikeQuality', 'CONSERVATIVE'))
         evidence = data.get('evidence', {}) or {}
-        is_validated = bool(evidence.get('validated_edge', False))
-        state_label = "<b>VALIDATED 3-LEVEL EDGE</b>" if is_validated else "<b>CONTINUOUS LEARNING</b>"
-        state_emoji = "✦" if is_validated else "◌"
+        
         side_emoji = "🔵" if prediction.lower() == "big" else "🟡" if prediction.lower() == "small" else "⚪"
-        evidence_line = (
-            f"<b>Evidence</b>  {_text(evidence.get('reason', 'COLLECTING'))}\n"
-            f"<b>Resolved forecasts</b>  {_text(evidence.get('resolved_predictions', 0))}"
-        )
-
-        # --- Martingale 3-level strategy block ---
-        p_win_in_3 = data.get('calibratedPWinIn3', evidence.get('joint3_probability', None))
-        p_correct_single = data.get('calibratedPSingle', evidence.get('per_round_win_rate', None))
-        three_level_win_rate = evidence.get('three_level_win_rate', None)
+        
+        # Strike quality emojis
         strike_emoji = {
             "ULTIMATE_CONVICTION": "💎",
             "BEAST_CONVICTION": "🔥",
             "HIGH_CONVICTION": "⚡",
             "MODERATE_CONVICTION": "🎯",
-            "VALIDATED": "✅",
+            "CONSERVATIVE_SAFE": "🛡️",
+            "HOLD_RISK_TOO_HIGH": "⚠️",
+            "HOLD_INSUFFICIENT_DATA": "⏳",
         }.get(strike_quality, "🧿")
 
-        martingale_block = ""
-        try:
-            p3_pct = f"{float(p_win_in_3) * 100:.1f}%" if p_win_in_3 is not None else "—"
-            p1_pct = f"{float(p_correct_single) * 100:.1f}%" if p_correct_single is not None else "—"
-            hist3_pct = (
-                f"{float(three_level_win_rate) * 100:.1f}%"
-                if three_level_win_rate is not None and float(three_level_win_rate) > 0
-                else "—"
-            )
-            martingale_block = f"""
-<b>3-LEVEL STRATEGY</b>
-{strike_emoji} <b>{strike_quality.replace('_', ' ')}</b>
-<b>P(win in 3)</b>   {p3_pct}
-<b>P(correct)</b>    {p1_pct}
-<b>Hist. 3-win</b>  {hist3_pct}
-""".rstrip()
-        except Exception:
-            martingale_block = ""
+        # Handle HOLD scenarios
+        if strike_quality in ["HOLD_RISK_TOO_HIGH", "HOLD_INSUFFICIENT_DATA"]:
+            hold_reason = "Risk too high for 3-level safety" if strike_quality == "HOLD_RISK_TOO_HIGH" else "Collecting more data"
+            return f"""<b>◈ EXTRAORDINARY INTELLIGENCE</b>
+━━━━━━━━━━━━━━━━━━
+⚠️ <b>HOLD - NO PREDICTION</b>
+
+Reason: {hold_reason}
+Strategy: Wait for >66% accuracy edge
+
+<i>Patience creates profit.</i>"""
+
+        # Calculate 3-level win probability
+        p_win_in_3 = data.get('calibratedPWinIn3', evidence.get('joint3_probability', None))
+        p3_pct = f"{float(p_win_in_3) * 100:.1f}%" if p_win_in_3 is not None else "—"
 
         # Add win/loss tracking if available
         result_info = ""
         if previous_result:
             result_emoji = "✅" if previous_result['won'] else "❌"
             result_text = "WON" if previous_result['won'] else "LOST"
-            predicted = _text(previous_result.get('predicted', 'N/A')).upper()
-            actual = _text(previous_result.get('actual', 'N/A')).upper()
-            number = _text(previous_result.get('number', 'N/A'))
-            result_info = f"\n\n<b>LAST RESULT</b>\n{result_emoji} {result_text}  •  {_text(previous_result.get('issue'))}\nPredicted {predicted}  |  Actual {actual} ({number})"
+            result_info = f"\n<b>LAST:</b> {result_emoji} {result_text}"
 
-        message = f"""
-<b>◈ EVOSEQ</b>  <i>LIVE INTELLIGENCE</i>
+        message = f"""<b>◈ EXTRAORDINARY INTELLIGENCE</b>
 ━━━━━━━━━━━━━━━━━━
-{state_emoji} {state_label}
 
-<b>FORECAST CARD</b>
-{side_emoji} <b>{prediction.upper()}</b>   <b>Confidence</b> {confidence}
-<b>Target</b>  {target_num}     <b>Hedge</b>  {hedge_num}
-{martingale_block}
+{side_emoji} <b>{prediction.upper()}</b>
+<b>Confidence:</b> {confidence}
+<b>Target:</b> {target_num} | <b>Hedge:</b> {hedge_num}
 
-<b>ROUND</b>
-Current  <code>{current_issue}</code>
-Next     <code>{next_issue}</code>
+{strike_emoji} <b>{strike_quality.replace('_', ' ')}</b>
+<b>P(Win in 3 levels):</b> {p3_pct}
+<b>Next Issue:</b> <code>{next_issue}</code>
 {result_info}
 
-<b>INTELLIGENCE</b>
-{evidence_line}
-<b>Active model</b>  {pattern}
-
-<i>Outcome-calibrated • refreshed live</i>
-        """
+<i>Evolving daily from database outcomes</i>"""
         return message.strip()
     except Exception as e:
         logger.error(f"Error formatting message: {e}")
-        import traceback
-        traceback.print_exc()
-        return "<b>◈ EVOSEQ</b>\n\n⚠️ <b>Unable to format the live forecast.</b>"
+        return "<b>◈ EXTRAORDINARY INTELLIGENCE</b>\n\n⚠️ <b>Formatting error</b>"
 
 
 def format_forecast_caption(data: dict, previous_result=None) -> str:
-    """Short companion caption for the visual forecast card."""
+    """Minimal caption for the forecast image."""
     evidence = data.get("evidence") or {}
-    learning_state = "Validated 3-level edge" if evidence.get("validated_edge") else "Continuous day-by-day learning"
     strike = _text(data.get("strikeQuality", "CONSERVATIVE")).replace("_", " ")
     p3 = data.get("calibratedPWinIn3", evidence.get("joint3_probability", None))
     p3_txt = f"{float(p3) * 100:.1f}%" if p3 is not None else "—"
-    caption = f"""
-<b>◈ EVOSEQ • LIVE FORECAST</b>
-{_text(learning_state)}
+    prediction = _text(data.get('prediction')).upper()
+    confidence = _percentage(data.get('confidence'))
+    
+    caption = f"""<b>◈ EXTRAORDINARY INTELLIGENCE</b>
 
-Next issue: <code>{_text(data.get('nextIssue'))}</code>
-Strike: <b>{strike}</b>  •  P(win in 3): <b>{p3_txt}</b>
-Evidence: {_text(evidence.get('reason', 'COLLECTING'))}
-Tap below to refresh or view outcome-based metrics.
-    """.strip()
+{prediction} • {confidence}
+P(Win in 3): {p3_txt} • Strike: {strike}
+
+Next: <code>{_text(data.get('nextIssue'))}</code>"""
     if previous_result:
-        outcome = "WON" if previous_result.get("won") else "LOST"
-        caption += f"\nPrevious forecast: <b>{outcome}</b>"
+        outcome = "✅ WON" if previous_result.get("won") else "❌ LOST"
+        caption += f"\nLast: {outcome}"
     return caption
 
 
@@ -319,32 +283,27 @@ async def reply_with_forecast(message, data: dict | None, previous_result=None):
 
 
 def format_metrics_message(metrics) -> str:
-    """Render outcome-based model performance as a Telegram dashboard card."""
+    """Simple accuracy stats display."""
     if not metrics:
-        return "<b>◈ LIVE METRICS</b>\n\n⚠️ Metrics are temporarily unavailable."
+        return "<b>◈ ACCURACY STATS</b>\n\n⚠️ Loading..."
     if metrics.get("resolved_predictions", 0) == 0:
-        return """
-<b>◈ LIVE METRICS</b>
+        return """<b>◈ ACCURACY STATS</b>
 ━━━━━━━━━━━━━━━━━━
-<b>Collecting evidence</b>
+<b>Collecting data...</b>
 
-The model has no reconciled forecasts yet. Metrics appear automatically after outcomes resolve.
-        """.strip()
+Accuracy stats appear after predictions resolve."""
+    
     accuracy = metrics.get("directional_accuracy")
     accuracy_text = f"{float(accuracy) * 100:.1f}%" if isinstance(accuracy, (int, float)) else "—"
-    brier = metrics.get("brier_score")
-    loss = metrics.get("log_loss")
-    return f"""
-<b>◈ LIVE METRICS</b>
+    resolved = _text(metrics.get('resolved_predictions'))
+    
+    return f"""<b>◈ ACCURACY STATS</b>
 ━━━━━━━━━━━━━━━━━━
 
-<b>Resolved forecasts</b>  {_text(metrics.get('resolved_predictions'))}
-<b>Directional accuracy</b> {_text(accuracy_text)}
-<b>Brier score</b>         {_text(f'{float(brier):.4f}' if isinstance(brier, (int, float)) else '—')}
-<b>Log loss</b>            {_text(f'{float(loss):.4f}' if isinstance(loss, (int, float)) else '—')}
+<b>Win Rate:</b> {accuracy_text}
+<b>Sample Size:</b> {resolved}
 
-<i>Metrics use only forecasts with a known outcome.</i>
-    """.strip()
+<i>Based on resolved predictions only</i>"""
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -396,24 +355,19 @@ async def dashboard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Open the premium live-intelligence dashboard."""
+    """Welcome message with simple keyboard."""
     user_id = update.effective_chat.id
     subscribed_users.add(user_id)
     
-    welcome_message = """
-<b>◈ WINGO • EVOSEQ</b>
-<i>Adaptive prediction intelligence</i>
+    welcome_message = """<b>◈ EXTRAORDINARY INTELLIGENCE</b>
 ━━━━━━━━━━━━━━━━━━
 
-Welcome. Your live forecast dashboard is ready.
+Welcome! Your prediction engine is ready.
 
-🔔 <b>Automatic updates enabled</b>
-Every resolved outcome is added to the evolving intelligence memory.
+<b>/predict</b> - Next AI forecast
+<b>/stats</b> - Win rate & accuracy
 
-Use the controls below for your forecast, live evidence metrics, and system health.
-
-<i>For entertainment only. Outcomes can be random.</i>
-    """
+<i>Entertainment purposes only.</i>"""
     await update.message.reply_text(
         welcome_message.strip(), parse_mode='HTML', reply_markup=main_keyboard()
     )
