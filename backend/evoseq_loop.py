@@ -469,16 +469,6 @@ def run_evoseq_cycle(history, db=None):
     # 8. Save Full Registry State to Supabase with enhanced metrics
     tuning_status = adaptive_tuner.get_tuning_status()
     
-    # 8.1 Record prediction result for 3-level algorithm learning
-    if three_level_prediction:
-        try:
-            predicted = three_level_prediction.get('prediction', '')
-            actual = "Big" if prob_big >= 0.5 else "Small"
-            _global_brain.three_level_algorithm.record_result(predicted, actual)
-            print(f"EVO_DEBUG: Recorded result for 3-level algorithm: Predicted {predicted}, Actual {actual}")
-        except Exception as e:
-            print(f"EVO_DEBUG: Failed to record result for 3-level algorithm: {e}")
-    
     # Use the calibrated confidence from live_inference for consistency
     final_confidence = live_inference.get("confidence", round(fitness, 1))
     
