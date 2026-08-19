@@ -202,6 +202,8 @@ Round: {next_issue[-8:]}{result_info}
     except Exception as e:
         logger.error("Error formatting message: %s", e)
         return "<b>✨ EVOSEQ Premium</b>\n\n⏳ Refreshing intelligence..."
+
+
 def format_forecast_caption(data: dict, previous_result=None) -> str:
     action = str(data.get("action", "FORECAST"))
     strike = _text(data.get("strikeQuality", "CONSERVATIVE")).replace("_", " ")
