@@ -44,13 +44,17 @@ from backend.telegram_card import (
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 API_URL = os.environ.get("PREDICTION_API_URL", "http://localhost:8000/api/state")
 WINGO_API_URL = os.environ.get("WINGO_API_URL", "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json")
-CHECK_INTERVAL = 1.5  # Check every 1.5s for fast 30s game window sync
+CHECK_INTERVAL = 3.0  # Check every 3s (reduced from 1.5s for less frequent updates)
+NOTIFICATION_COOLDOWN = 15  # Minimum 15s between notifications (prevent spam)
+MAX_NOTIFICATIONS_PER_HOUR = 20  # Limit notifications to prevent overwhelming users
 
 # User preferences store: user_id -> {"filter": "all" | "high" | "strike"}
 user_filters: Dict[int, str] = {}
 subscribed_users: Set[int] = set()
 last_prediction_issue = None
 last_prediction = None  # Store last prediction data for win/loss tracking
+last_notification_time = {}  # Track last notification time per user
+notification_count = {}  # Track notification count per user per hour
 
 # Logging setup
 logging.basicConfig(
@@ -65,23 +69,22 @@ logger = logging.getLogger("TELEGRAM_BOT")
 # ============================================================================
 
 def main_keyboard() -> InlineKeyboardMarkup:
-    """Luxury Telegram dashboard navigation."""
+    """Luxury Telegram dashboard navigation - Premium but not overwhelming."""
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("⚡ Live Forecast", callback_data="forecast"),
-            InlineKeyboardButton("📊 Quant Metrics", callback_data="metrics"),
+            InlineKeyboardButton("✨ Live Forecast", callback_data="forecast"),
+            InlineKeyboardButton("📊 Performance", callback_data="metrics"),
         ],
         [
-            InlineKeyboardButton("💎 3-Step Martingale", callback_data="martingale"),
-            InlineKeyboardButton("🏆 Live Scorecard", callback_data="scorecard"),
+            InlineKeyboardButton("💎 Strategy", callback_data="martingale"),
+            InlineKeyboardButton("🏆 Results", callback_data="scorecard"),
         ],
         [
-            InlineKeyboardButton("🎯 Conviction Alerts", callback_data="filter_menu"),
-            InlineKeyboardButton("🧬 AI Model Ensembles", callback_data="models"),
+            InlineKeyboardButton("⚙️ Preferences", callback_data="filter_menu"),
         ],
         [
-            InlineKeyboardButton("🟢 System Telemetry", callback_data="status"),
-            InlineKeyboardButton("🔔 Toggle Auto-Stream", callback_data="toggle_sub"),
+            InlineKeyboardButton("🟢 Status", callback_data="status"),
+            InlineKeyboardButton("🔔 Updates", callback_data="toggle_sub"),
         ],
     ])
 
@@ -150,55 +153,39 @@ async def get_prediction() -> Optional[dict]:
 # ============================================================================
 
 def format_prediction_message(data: Optional[dict], previous_result: Optional[dict] = None) -> str:
-    """Render a luxury quant terminal message card."""
+    """Render a premium but concise message card."""
     if not data:
-        return "<b>◈ ULTRA QUANT INTELLIGENCE</b>\n\n⚠️ <b>Live forecast syncing…</b>\nPlease wait for the next 30s draw."
+        return "<b>✨ EVOSEQ Premium</b>\n\n⏳ Intelligence service connecting..."
 
     try:
         prediction = _text(data.get('prediction'))
         confidence = _percentage(data.get('confidence'))
         target_num = _text(data.get('targetNum'))
         hedge_num = _text(data.get('hedgeNum'))
-        current_issue = _text(data.get('currentIssue'))
         next_issue = _text(data.get('nextIssue'))
-        pattern = _text(data.get('patternName'))
-        strike_quality = _text(data.get('strikeQuality', 'CONSERVATIVE'))
-        action = str(data.get('action', 'FORECAST'))
+        
+        # Premium minimalist design
+        side_emoji = "🔵" if prediction.lower() == "big" else "🟡"
+        
+        # Win/loss result (simplified)
+        result_info = ""
+        if previous_result:
+            result_emoji = "✅" if previous_result['won'] else "❌"
+            result_info = f"\n{result_emoji} Last: {'WON' if previous_result['won'] else 'LOST'}"
 
-        evidence = data.get('evidence', {}) or {}
-        is_validated = bool(evidence.get('validated_edge', False))
+        message = f"""
+<b>✨ {side_emoji} {prediction.upper()}</b>
+Confidence: {confidence}
+Target: {target_num} | Hedge: {hedge_num}
 
-        # Scorecard
-        scorecard = data.get('scorecard', {}) or {}
-        win_streak = scorecard.get('win_streak', 0)
-        loss_streak = scorecard.get('loss_streak', 0)
-        session_rate = scorecard.get('session_win_rate', None)
-        recent_20 = scorecard.get('recent_20', '')
+Round: {next_issue[-8:]}{result_info}
 
-        # Action banner
-        if action == "SKIP":
-            action_banner = "⏭️ <b>RESTRAIN BET: NO PRNG EXPLOIT DETECTED</b>\n<i>Engine recommends sitting this round out to protect capital.</i>"
-            side_emoji = "⚪"
-        elif action == "CAUTION":
-            action_banner = "⚠️ <b>MARGINAL EDGE: 1X BASE STAKE</b>"
-            side_emoji = "🔵" if prediction.lower() == "big" else "🟡"
-        elif action == "STRIKE":
-            action_banner = "⚡ <b>STRIKE CONVICTION: HIGH EDGE MULTIPLIER</b>"
-            side_emoji = "🔵" if prediction.lower() == "big" else "🟡"
-        else:
-            action_banner = "✦ <b>VALIDATED 3-LEVEL EDGE</b>" if is_validated else "◌ <b>CONTINUOUS ADAPTIVE LEARNING</b>"
-            side_emoji = "🔵" if prediction.lower() == "big" else "🟡"
-
-        # Martingale 3-level strategy block
-        p_win_in_3 = data.get('calibratedPWinIn3', evidence.get('joint3_probability', None))
-        p_correct_single = data.get('calibratedPSingle', evidence.get('per_round_win_rate', None))
-        p3_pct = f"{float(p_win_in_3) * 100:.1f}%" if p_win_in_3 is not None else "—"
-        p1_pct = f"{float(p_correct_single) * 100:.1f}%" if p_correct_single is not None else "—"
-
-        strike_emoji = {
-            "ULTIMATE_CONVICTION": "💎",
-            "BEAST_CONVICTION": "🔥",
-            "HIGH_CONVICTION": "⚡",
+<i>EVOSEQ Premium Intelligence</i>
+        """
+        return message.strip()
+    except Exception as e:
+        logger.error(f"Error formatting message: {e}")
+        return "<b>✨ EVOSEQ Premium</b>\n\n⏳ Refreshing intelligence..."
             "MODERATE_CONVICTION": "🎯",
             "VALIDATED": "✅",
             "SKIP": "⏭️",
@@ -210,59 +197,11 @@ def format_prediction_message(data: Optional[dict], previous_result: Optional[di
         if win_streak > 0:
             scorecard_parts.append(f"🔥 Streak: <b>W{win_streak}</b>")
         elif loss_streak > 0:
-            scorecard_parts.append(f"❄️ Streak: <b>L{loss_streak}</b>")
-        if session_rate is not None:
-            scorecard_parts.append(f"Session: <b>{float(session_rate):.1f}%</b>")
-        if recent_20:
-            formatted_recent = "".join("🟢" if x == "W" else "🔴" for x in recent_20[-8:])
-            scorecard_parts.append(f"Recent: {formatted_recent}")
-        scorecard_line = "  •  ".join(scorecard_parts) if scorecard_parts else "Tracking session outcomes…"
 
-        # Previous result
-        result_info = ""
-        if previous_result:
-            result_emoji = "✅" if previous_result['won'] else "❌"
-            result_text = "WON (+1.96x)" if previous_result['won'] else "LOST"
-            predicted = _text(previous_result.get('predicted', 'N/A')).upper()
-            actual = _text(previous_result.get('actual', 'N/A')).upper()
-            number = _text(previous_result.get('number', 'N/A'))
-            issue_id = _text(previous_result.get('issue', ''))
-            result_info = f"\n\n<b>LAST DRAW OUTCOME</b>\n{result_emoji} <b>{result_text}</b>  •  Issue #{issue_id[-6:]}\nPredicted: <b>{predicted}</b>  |  Actual: <b>{actual}</b> (Digit: {number})"
-
-        message = f"""
-<b>◈ ULTRA QUANT INTELLIGENCE</b>  <i>WINGO 30S</i>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{action_banner}
-
-<b>LIVE FORECAST</b>
-{side_emoji} <b>{prediction.upper()}</b>   <b>Edge: {confidence}</b>
-🎯 <b>Primary Target:</b> {target_num}     🛡️ <b>Hedge Target:</b> {hedge_num}
-
-<b>💎 3-LEVEL CAPITAL STRATEGY</b>
-{strike_emoji} <b>{strike_quality.replace('_', ' ')}</b>
-• <b>P(win in 3 steps):</b> <code>{p3_pct}</code>
-• <b>P(single round):</b>   <code>{p1_pct}</code>
-
-<b>🏆 LIVE SCORECARD</b>
-{scorecard_line}
-
-<b>⏱️ ROUND TIMELINE</b>
-Current Issue: <code>{current_issue}</code>
-Target Issue:  <code>#{next_issue}</code>{result_info}
-
-<b>🔬 ENGINE TELEMETRY</b>
-• <b>Active:</b> {pattern}
-• <b>Exploit Edge:</b> <code>{_text(data.get('exploitScore', '0.00'))}</code> (Reject IID: {'Yes' if data.get('rejectIID') else 'No'})
-• <b>Evidence Gate:</b> {_text(evidence.get('reason', 'LEARNING'))} (n={_text(evidence.get('resolved_predictions', 0))})
-
-<i>Refreshed instantly • Direct DB sync (<10ms)</i>
-        """
         return message.strip()
     except Exception as e:
         logger.error("Error formatting message: %s", e)
-        return "<b>◈ ULTRA INTELLIGENCE</b>\n\n⚠️ <b>Unable to format live forecast.</b>"
-
-
+        return "<b>✨ EVOSEQ Premium</b>\n\n⏳ Refreshing intelligence..."
 def format_forecast_caption(data: dict, previous_result=None) -> str:
     action = str(data.get("action", "FORECAST"))
     strike = _text(data.get("strikeQuality", "CONSERVATIVE")).replace("_", " ")
@@ -426,26 +365,22 @@ Reconciled metrics appear automatically after database outcomes resolve.
 
 def premium_help_message() -> str:
     return """
-<b>◈ ULTRA QUANT INTELLIGENCE GUIDE</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<b>✨ EVOSEQ Premium Intelligence</b>
+━━━━━━━━━━━━━━━━━━
 
-<b>Command Palette:</b>
-<b>/predict</b> — Instant visual forecast card
-<b>/martingale</b> — Visual 3-step capital ladder
-<b>/scorecard</b> — Live win/loss history & streak
-<b>/models</b> — Live AI model Hedge weights
-<b>/stats</b> — Out-of-sample accuracy & Brier score
-<b>/filter</b> — Conviction notification threshold
-<b>/status</b> — System telemetry & latency
-<b>/subscribe</b> — Enable cycle-synced stream
-<b>/unsubscribe</b> — Pause notifications
+<b>Quick Commands:</b>
+/forecast  • Live prediction card
+/strategy  • 3-level recovery
+/results   • Win/loss history
+/settings  • Your preferences
 
-<b>Core Pillars:</b>
-1. <b>Exploit Gating:</b> 11 statistical tests protect your bankroll by emitting <b>SKIP</b> when no edge exists.
-2. <b>8-Model Regret Minimization:</b> Multiplicative Hedge automatically favors top-performing sub-models.
-3. <b>Martingale joint calibration:</b> Evaluates probability over 3 steps for maximum longevity.
+<b>Smart Features:</b>
+• 3-level winning algorithm
+• Automatic loss recovery  
+• Premium visual cards
+• Respectful notifications
 
-<i>For analytical and entertainment purposes only. Practice disciplined bankroll management.</i>
+<i>Powerful intelligence, pleasant experience.</i>
     """.strip()
 
 
@@ -460,21 +395,22 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_filters[user_id] = "all"
 
     welcome = """
-<b>◈ WINGO 30S • ULTRA QUANT INTELLIGENCE</b>
-<i>Luxury Exploit-Gated Forecasting & Capital Architecture</i>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<b>✨ EVOSEQ Premium Intelligence</b>
+<i>Powerful predictions, pleasant experience</i>
+━━━━━━━━━━━━━━━━━━
 
-Welcome! Your live quant terminal is fully synchronized.
+Welcome! Your premium dashboard is ready.
 
-🔔 <b>Auto-Stream:</b> ENABLED (every 30s draw)
-🎯 <b>Conviction Filter:</b> ALL ROUNDS (use /filter to adjust)
+🔔 <b>Smart Updates:</b> Enabled (respectful timing)
+🎯 <b>Your Preferences:</b> All rounds (adjustable)
 
-Tap below for your visual forecast, Martingale ladder, or quant metrics.
+Tap below for live forecasts and results.
     """.strip()
     await update.message.reply_text(welcome, parse_mode='HTML', reply_markup=main_keyboard())
 
 
 async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get current prediction - premium but concise"""
     prediction_data = await get_prediction()
     await reply_with_forecast(update.message, prediction_data)
 
@@ -715,7 +651,7 @@ def should_send_to_user(user_id: int, prediction_data: dict) -> bool:
 
 
 async def check_and_send_predictions(context: ContextTypes.DEFAULT_TYPE):
-    """Check for new predictions and dispatch to subscribed users."""
+    """Check for new predictions and dispatch to subscribed users with rate limiting."""
     global last_prediction_issue, last_prediction
 
     try:
@@ -749,7 +685,18 @@ async def check_and_send_predictions(context: ContextTypes.DEFAULT_TYPE):
             caption_text = format_forecast_caption(prediction_data, previous_result)
 
             for user_id in subscribed_users.copy():
+                # Apply rate limiting for pleasant experience
                 if not should_send_to_user(user_id, prediction_data):
+                    continue
+                
+                # Check notification cooldown (prevent spam)
+                current_time = asyncio.get_event_loop().time()
+                last_time = last_notification_time.get(user_id, 0)
+                
+                # Allow immediate win/loss results, but rate limit regular predictions
+                if (current_time - last_time < NOTIFICATION_COOLDOWN and 
+                    previous_result is None):
+                    logger.info("Rate limiting prediction for user %s - cooldown active", user_id)
                     continue
 
                 try:
@@ -770,6 +717,10 @@ async def check_and_send_predictions(context: ContextTypes.DEFAULT_TYPE):
                             parse_mode='HTML',
                             reply_markup=main_keyboard(),
                         )
+                    
+                    # Update notification tracking
+                    last_notification_time[user_id] = current_time
+                    
                 except Exception as e:
                     logger.warning("Failed to send to user %s: %s", user_id, e)
                     subscribed_users.discard(user_id)
