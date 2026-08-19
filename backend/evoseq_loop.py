@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 from backend.database import save_ai_brain_state, SessionLocal, Outcome
 from datetime import datetime, timedelta
 from backend.extraordinary_intelligence import ExtraordinaryIntelligence
+from backend.three_level_winning import ThreeLevelWinningAlgorithm
 
 # Add EVOSEQ path for Python imports
 evoseq_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'EVOSEQ')
@@ -41,6 +42,7 @@ class GlobalBrain:
         self.transformer = None
         self.mamba = None
         self.extraordinary_intelligence = None
+        self.three_level_algorithm = None
         self.drift_detector = None
         self.pattern_extractor = None
         self.adaptive_tuner = None
@@ -70,6 +72,10 @@ class GlobalBrain:
         # Initialize extraordinary intelligence
         self.extraordinary_intelligence = ExtraordinaryIntelligence()
         print("EVO_DEBUG: Initialized Extraordinary Intelligence")
+        
+        # Initialize 3-level winning algorithm
+        self.three_level_algorithm = ThreeLevelWinningAlgorithm()
+        print("EVO_DEBUG: Initialized 3-Level Winning Algorithm")
         
         # Load or create Transformer
         transformer_path = os.path.join(os.path.dirname(__file__), 'brain_transformer.pt')
@@ -316,14 +322,36 @@ def run_evoseq_cycle(history, db=None):
     eval_ctx = int_seq[-64:] if len(int_seq) >= 64 else int_seq
     probs_ensemble = predictor.predict_next(eval_ctx)
     
-    # 6.1 Enhance with Extraordinary Intelligence
+    # 6.1 Enhance with 3-Level Winning Algorithm
+    print("EVO_DEBUG: Running 3-Level Winning Algorithm...")
+    three_level_prediction = None
+    three_level_used = False
+    try:
+        three_level_prediction = _global_brain.three_level_algorithm.make_prediction()
+        if three_level_prediction:
+            print(f"EVO_DEBUG: 3-Level prediction: {three_level_prediction['prediction']} at Level {three_level_prediction['level']} with {three_level_prediction['confidence']:.1f}% confidence")
+            
+            # Use 3-level algorithm if it's high confidence or we're in recovery mode
+            if three_level_prediction['confidence'] > li.get("confidence", 0) or three_level_prediction['level'] >= 2:
+                print("EVO_DEBUG: Using 3-Level Winning Algorithm prediction")
+                li["prediction"] = three_level_prediction['prediction']
+                li["confidence"] = three_level_prediction['confidence']
+                li["targetNum"] = three_level_prediction['targetNum']
+                li["hedgeNum"] = three_level_prediction['hedgeNum']
+                three_level_used = True
+        else:
+            print("EVO_DEBUG: 3-Level algorithm failed, using ensemble")
+    except Exception as e:
+        print(f"EVO_DEBUG: 3-Level algorithm error: {e}, using ensemble")
+    
+    # 6.2 Enhance with Extraordinary Intelligence
     print("EVO_DEBUG: Enhancing with Extraordinary Intelligence...")
     extraordinary_prediction = None
     extraordinary_used = False
     extraordinary_probs = None
     try:
         extraordinary_prediction = _global_brain.extraordinary_intelligence.predict_next()
-        if extraordinary_prediction:
+        if extraordinary_prediction and not three_level_used:
             print(f"EVO_DEBUG: Extraordinary prediction: {extraordinary_prediction['prediction']} with {extraordinary_prediction['confidence']:.1f}% confidence")
             
             # Blend extraordinary intelligence with ensemble (30% weight to extraordinary)
@@ -395,7 +423,7 @@ def run_evoseq_cycle(history, db=None):
     
     # Check if extraordinary intelligence was blended in
     extraordinary_used = extraordinary_probs is not None and extraordinary_prediction is not None
-    intelligence_marker = "🧠 EXTRAORDINARY" if extraordinary_used else "🧬"
+    intelligence_marker = "🎯 3-LEVEL" if three_level_used else "🧠 EXTRAORDINARY" if extraordinary_used else "🧬"
     
     # If extraordinary has significantly higher confidence and aligns with dominant probability, let it refine target/hedge
     if extraordinary_used and extraordinary_prediction:
@@ -440,6 +468,16 @@ def run_evoseq_cycle(history, db=None):
     
     # 8. Save Full Registry State to Supabase with enhanced metrics
     tuning_status = adaptive_tuner.get_tuning_status()
+    
+    # 8.1 Record prediction result for 3-level algorithm learning
+    if three_level_prediction:
+        try:
+            predicted = three_level_prediction.get('prediction', '')
+            actual = "Big" if prob_big >= 0.5 else "Small"
+            _global_brain.three_level_algorithm.record_result(predicted, actual)
+            print(f"EVO_DEBUG: Recorded result for 3-level algorithm: Predicted {predicted}, Actual {actual}")
+        except Exception as e:
+            print(f"EVO_DEBUG: Failed to record result for 3-level algorithm: {e}")
     
     # Use the calibrated confidence from live_inference for consistency
     final_confidence = live_inference.get("confidence", round(fitness, 1))
