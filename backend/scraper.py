@@ -39,19 +39,19 @@ async def cleanup_old_data(days_old=2):
         ).count()
         
         if count > 0:
-            print(f"🧹 Cleaning up {count} records older than {days_old} days from Supabase")
+            print(f"[Cleanup] 🧹 Cleaning up {count} records older than {days_old} days from Supabase")
             session.query(Outcome).filter(
                 Outcome.timestamp_utc < cutoff_date
             ).delete()
             session.commit()
-            print(f"✅ Successfully deleted {count} old records")
+            print(f"[Cleanup] ✅ Successfully deleted {count} old records")
         else:
-            print(f"✓ No records older than {days_old} days found")
+            print(f"[Cleanup] ✓ No records older than {days_old} days found")
             
         session.close()
         return count
     except Exception as e:
-        print(f"⚠️ Error cleaning up old data: {e}")
+        print(f"[Cleanup] ⚠️ Error cleaning up old data: {e}")
         return -1
 
 

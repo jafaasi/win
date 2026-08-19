@@ -155,18 +155,18 @@ def run_evoseq_cycle(history, db=None):
         if supabase_data:
             # Convert Supabase data to history format
             supabase_history = [str(item.digit) for item in supabase_data]
-            logger.info(f"Fetched {len(supabase_history)} records from Supabase for enhanced learning")
+            print(f"[Supabase] Fetched {len(supabase_history)} records from Supabase for enhanced learning")
             
             # Combine with local history (prefer Supabase data)
             if len(supabase_history) > len(history):
                 history = supabase_history
-                logger.info("Using Supabase data for training (higher quality)")
+                print("[Supabase] Using Supabase data for training (higher quality)")
         else:
-            logger.info("Using local history (Supabase data not available)")
+            print("[Supabase] Using local history (Supabase data not available)")
             
         session.close()
     except Exception as e:
-        logger.warning(f"Could not fetch Supabase data: {e}, using local history")
+        print(f"[Supabase] Could not fetch Supabase data: {e}, using local history")
     
     print(f"=== 🧬 RUNNING ENHANCED EXPLOIT-FOCUSED ADAPTIVE PRNG PIPELINE (n={len(history)}) ===")
     
@@ -421,17 +421,17 @@ def cleanup_old_data(days_old=2):
         ).count()
         
         if count > 0:
-            logger.info(f"Cleaning up {count} records older than {days_old} days from Supabase")
+            print(f"[Cleanup] Cleaning up {count} records older than {days_old} days from Supabase")
             session.query(Outcome).filter(
                 Outcome.timestamp_utc < cutoff_date
             ).delete()
             session.commit()
-            logger.info(f"Successfully deleted {count} old records")
+            print(f"[Cleanup] Successfully deleted {count} old records")
         else:
-            logger.info(f"No records older than {days_old} days found")
+            print(f"[Cleanup] No records older than {days_old} days found")
             
         session.close()
         return count
     except Exception as e:
-        logger.error(f"Error cleaning up old data: {e}")
+        print(f"[Cleanup] Error cleaning up old data: {e}")
         return -1
