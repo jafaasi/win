@@ -176,6 +176,20 @@ alias win-ai-logs="sudo journalctl -u win-ai -f"
 alias win-bot-logs="sudo journalctl -u win-telegram -f"
 EOF
 
+# Also append to ~/.bashrc for current user
+if ! grep -q "win-status" /home/ubuntu/.bashrc 2>/dev/null; then
+    cat >> /home/ubuntu/.bashrc << 'EOF'
+
+# WinGo Management Aliases
+alias win-status="sudo systemctl status win-scraper win-ai win-telegram win-api --no-pager"
+alias win-restart="sudo systemctl restart win-scraper win-ai win-telegram win-api"
+alias win-stop="sudo systemctl stop win-scraper win-ai win-telegram win-api"
+alias win-logs="sudo journalctl -u win-scraper -u win-ai -u win-telegram -u win-api -f"
+alias win-ai-logs="sudo journalctl -u win-ai -f"
+alias win-bot-logs="sudo journalctl -u win-telegram -f"
+EOF
+fi
+
 # Check service status
 sleep 3
 echo ""

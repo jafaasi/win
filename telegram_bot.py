@@ -115,7 +115,36 @@ def _percentage(value) -> str:
     except (TypeError, ValueError):
         return "—"
 
+async def get_prediction() -> Optional[dict]:
+    """Fetch the latest prediction from the local WinGo API."""
+    try:
+        timeout = httpx.Timeout(5.0, connect=2.0)
 
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(API_URL)
+
+            if response.status_code != 200:
+                logger.warning(
+                    "Prediction API returned HTTP %s",
+                    response.status_code
+                )
+                return None
+
+            data = response.json()
+
+            if not isinstance(data, dict):
+                logger.warning("Prediction API returned unexpected data type")
+                return None
+
+            return data
+
+    except httpx.RequestError as e:
+        logger.warning("Prediction API connection failed: %s", e)
+        return None
+
+    except Exception as e:
+        logger.exception("Failed to fetch prediction: %s", e)
+        return None
 # ============================================================================
 # Message Formatters
 # ============================================================================
