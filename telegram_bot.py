@@ -194,16 +194,48 @@ def format_prediction_message(data, previous_result=None):
         current_issue = _text(data.get('currentIssue'))
         next_issue = _text(data.get('nextIssue'))
         pattern = _text(data.get('patternName'))
-        evidence = data.get('evidence', {})
-        is_validated = evidence.get('validated_edge', False)
-        state_label = "<b>VALIDATED EDGE</b>" if is_validated else "<b>CONTINUOUS LEARNING</b>"
+        strike_quality = _text(data.get('strikeQuality', 'CONSERVATIVE'))
+        evidence = data.get('evidence', {}) or {}
+        is_validated = bool(evidence.get('validated_edge', False))
+        state_label = "<b>VALIDATED 3-LEVEL EDGE</b>" if is_validated else "<b>CONTINUOUS LEARNING</b>"
         state_emoji = "✦" if is_validated else "◌"
         side_emoji = "🔵" if prediction.lower() == "big" else "🟡" if prediction.lower() == "small" else "⚪"
         evidence_line = (
             f"<b>Evidence</b>  {_text(evidence.get('reason', 'COLLECTING'))}\n"
             f"<b>Resolved forecasts</b>  {_text(evidence.get('resolved_predictions', 0))}"
         )
-        
+
+        # --- Martingale 3-level strategy block ---
+        p_win_in_3 = data.get('calibratedPWinIn3', evidence.get('joint3_probability', None))
+        p_correct_single = data.get('calibratedPSingle', evidence.get('per_round_win_rate', None))
+        three_level_win_rate = evidence.get('three_level_win_rate', None)
+        strike_emoji = {
+            "ULTIMATE_CONVICTION": "💎",
+            "BEAST_CONVICTION": "🔥",
+            "HIGH_CONVICTION": "⚡",
+            "MODERATE_CONVICTION": "🎯",
+            "VALIDATED": "✅",
+        }.get(strike_quality, "🧿")
+
+        martingale_block = ""
+        try:
+            p3_pct = f"{float(p_win_in_3) * 100:.1f}%" if p_win_in_3 is not None else "—"
+            p1_pct = f"{float(p_correct_single) * 100:.1f}%" if p_correct_single is not None else "—"
+            hist3_pct = (
+                f"{float(three_level_win_rate) * 100:.1f}%"
+                if three_level_win_rate is not None and float(three_level_win_rate) > 0
+                else "—"
+            )
+            martingale_block = f"""
+<b>3-LEVEL STRATEGY</b>
+{strike_emoji} <b>{strike_quality.replace('_', ' ')}</b>
+<b>P(win in 3)</b>   {p3_pct}
+<b>P(correct)</b>    {p1_pct}
+<b>Hist. 3-win</b>  {hist3_pct}
+""".rstrip()
+        except Exception:
+            martingale_block = ""
+
         # Add win/loss tracking if available
         result_info = ""
         if previous_result:
@@ -213,7 +245,7 @@ def format_prediction_message(data, previous_result=None):
             actual = _text(previous_result.get('actual', 'N/A')).upper()
             number = _text(previous_result.get('number', 'N/A'))
             result_info = f"\n\n<b>LAST RESULT</b>\n{result_emoji} {result_text}  •  {_text(previous_result.get('issue'))}\nPredicted {predicted}  |  Actual {actual} ({number})"
-        
+
         message = f"""
 <b>◈ EVOSEQ</b>  <i>LIVE INTELLIGENCE</i>
 ━━━━━━━━━━━━━━━━━━
@@ -222,6 +254,7 @@ def format_prediction_message(data, previous_result=None):
 <b>FORECAST CARD</b>
 {side_emoji} <b>{prediction.upper()}</b>   <b>Confidence</b> {confidence}
 <b>Target</b>  {target_num}     <b>Hedge</b>  {hedge_num}
+{martingale_block}
 
 <b>ROUND</b>
 Current  <code>{current_issue}</code>
@@ -237,18 +270,24 @@ Next     <code>{next_issue}</code>
         return message.strip()
     except Exception as e:
         logger.error(f"Error formatting message: {e}")
+        import traceback
+        traceback.print_exc()
         return "<b>◈ EVOSEQ</b>\n\n⚠️ <b>Unable to format the live forecast.</b>"
 
 
 def format_forecast_caption(data: dict, previous_result=None) -> str:
     """Short companion caption for the visual forecast card."""
     evidence = data.get("evidence") or {}
-    learning_state = "Validated historical edge" if evidence.get("validated_edge") else "Continuous day-by-day learning"
+    learning_state = "Validated 3-level edge" if evidence.get("validated_edge") else "Continuous day-by-day learning"
+    strike = _text(data.get("strikeQuality", "CONSERVATIVE")).replace("_", " ")
+    p3 = data.get("calibratedPWinIn3", evidence.get("joint3_probability", None))
+    p3_txt = f"{float(p3) * 100:.1f}%" if p3 is not None else "—"
     caption = f"""
 <b>◈ EVOSEQ • LIVE FORECAST</b>
 {_text(learning_state)}
 
 Next issue: <code>{_text(data.get('nextIssue'))}</code>
+Strike: <b>{strike}</b>  •  P(win in 3): <b>{p3_txt}</b>
 Evidence: {_text(evidence.get('reason', 'COLLECTING'))}
 Tap below to refresh or view outcome-based metrics.
     """.strip()

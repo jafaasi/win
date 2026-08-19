@@ -320,6 +320,7 @@ def run_evoseq_cycle(history, db=None):
     print("EVO_DEBUG: Enhancing with Extraordinary Intelligence...")
     extraordinary_prediction = None
     extraordinary_used = False
+    extraordinary_probs = None
     try:
         extraordinary_prediction = _global_brain.extraordinary_intelligence.predict_next()
         if extraordinary_prediction:
@@ -328,29 +329,22 @@ def run_evoseq_cycle(history, db=None):
             # Blend extraordinary intelligence with ensemble (30% weight to extraordinary)
             extraordinary_probs = np.array(extraordinary_prediction['probabilities'])
             probs_ensemble = 0.7 * probs_ensemble + 0.3 * extraordinary_probs
-            
-            # Update prediction if extraordinary confidence is higher
-            if extraordinary_prediction['confidence'] > li.get("confidence", 0):
-                print("EVO_DEBUG: Using extraordinary prediction due to higher confidence")
-                li["prediction"] = extraordinary_prediction['prediction']
-                li["confidence"] = extraordinary_prediction['confidence']
-                li["targetNum"] = extraordinary_prediction['targetNum']
-                li["hedgeNum"] = extraordinary_prediction['hedgeNum']
-                extraordinary_used = True
         else:
             print("EVO_DEBUG: Extraordinary intelligence prediction failed, using ensemble only")
     except Exception as e:
         print(f"EVO_DEBUG: Extraordinary intelligence error: {e}, using ensemble only")
     
-    # Apply 3-gram pattern enhancement
+    # Apply 3-gram and 5-gram pattern enhancement (single pass)
     if len(eval_ctx) >= 2:
-        ngram_probs = pattern_extractor.get_3gram_probability(eval_ctx)
-        # Blend ensemble with n-gram patterns (30% weight)
-        probs_ensemble = 0.7 * probs_ensemble + 0.3 * ngram_probs
-    if len(eval_ctx) >= 2:
-        ngram_probs = pattern_extractor.get_3gram_probability(eval_ctx)
-        # Blend ensemble with n-gram patterns (30% weight)
-        probs_ensemble = 0.7 * probs_ensemble + 0.3 * ngram_probs
+        ngram_probs_3 = pattern_extractor.get_3gram_probability(eval_ctx)
+        probs_ensemble = 0.75 * probs_ensemble + 0.25 * ngram_probs_3
+    
+    if len(eval_ctx) >= 4:
+        try:
+            ngram_probs_5 = pattern_extractor.get_ngram_probability(eval_ctx, 5) if hasattr(pattern_extractor, 'get_ngram_probability') else pattern_extractor.get_3gram_probability(eval_ctx)
+            probs_ensemble = 0.85 * probs_ensemble + 0.15 * ngram_probs_5
+        except Exception:
+            pass
     
     # Apply regime-specific adjustments
     if current_regime in ["STRONG_BIG_MOMENTUM", "MODERATE_BIG_BIAS"]:
@@ -399,17 +393,39 @@ def run_evoseq_cycle(history, db=None):
         "EQUILIBRIUM": "⚖️"
     }.get(current_regime, "🧬")
     
-    # Check if extraordinary intelligence was used
+    # Check if extraordinary intelligence was blended in
+    extraordinary_used = extraordinary_probs is not None and extraordinary_prediction is not None
     intelligence_marker = "🧠 EXTRAORDINARY" if extraordinary_used else "🧬"
+    
+    # If extraordinary has significantly higher confidence and aligns with dominant probability, let it refine target/hedge
+    if extraordinary_used and extraordinary_prediction:
+        ex_side = extraordinary_prediction['prediction']
+        ensemble_side = "Big" if prob_big >= 0.5 else "Small"
+        ex_conf = extraordinary_prediction.get('confidence', 0)
+        if ex_side == ensemble_side and ex_conf > 92:
+            # Use extraordinary's target selection when it's confident and aligned
+            if (ex_side == "Big" and extraordinary_prediction['targetNum'] >= 5) or \
+               (ex_side == "Small" and extraordinary_prediction['targetNum'] < 5):
+                targetNum = extraordinary_prediction['targetNum']
+                hedgeNum = extraordinary_prediction['hedgeNum']
     
     patternName = f"{intelligence_marker} {regime_emoji} {champion_name} {current_regime}" if predictor.weights[0] < 0.9 else "⚖️ Uniform Randomness (No Exploit Found)"
     
     dominant_p = max(prob_big, prob_small)
     advantage = max(0.002, dominant_p - 0.50)
     
-    # Apply confidence adjustment based on drift
-    base_confidence = min(98.4, max(89.5, 89.0 + (advantage * 65.0)))
-    calibrated_confidence = round(base_confidence * confidence_adj, 1)
+    # Enhanced confidence: combine drift adjustment with statistical evidence from tests
+    # Use KS p-value and autocorrelation as additional calibration signals
+    ks_signal = max(0.0, min(1.0, float(ks_test['p_value'])))
+    acf_signal = min(1.0, abs(autocorr['max_acf']) * 2.5)
+    # If statistically significant patterns exist (low KS p-val OR high autocorr), boost base confidence
+    pattern_evidence_boost = 0.0
+    if ks_signal < 0.05 or acf_signal > 0.15:
+        pattern_evidence_boost = 0.02
+    # Apply confidence adjustment based on drift + pattern evidence
+    base_confidence = min(98.8, max(88.0, 89.0 + (advantage * 70.0)))
+    calibrated_confidence = round(base_confidence * (confidence_adj + pattern_evidence_boost), 1)
+    calibrated_confidence = min(99.0, calibrated_confidence)
     
     live_inference = {
         "prediction": "Big" if prob_big >= 0.5 else "Small",
