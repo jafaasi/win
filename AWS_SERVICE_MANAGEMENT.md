@@ -1,294 +1,169 @@
-# AWS Deployment and Service Management Guide
+# 🛠️ AWS Service Management Guide — WinGo Ultra Intelligence
 
-## 🚀 How to Run Enhanced System on AWS
+This document provides commands and workflows for managing the **WinGo 30s Ultra Intelligence** system on AWS EC2.
 
-### Step 1: Pull Latest Changes
+---
+
+## 🚀 1. The 4 System Services
+
+The system runs 4 background daemons via `systemd`:
+
+| Service | Daemon Script | Role |
+|---|---|---|
+| **`win-ai.service`** | `backend/local_ai_engine.py` | Core Ultra Intelligence Engine (8-model Hedge ensemble, exploit gating, online learning) |
+| **`win-telegram.service`** | `telegram_bot.py` | Luxury Telegram Bot dispatcher (cycle-synchronized 1.5s push, card rendering) |
+| **`win-scraper.service`** | `backend/scraper.py` | 24/7 WinGo 30s draw collector syncing directly to Supabase |
+| **`win-api.service`** | `backend.server:app` | FastAPI REST gateway (port 8000) for web dashboard & telemetry |
+
+---
+
+## ⚡ 2. Instant Shortcut Commands
+
+The installer configures these aliases in `/etc/profile.d/win_aliases.sh`:
+
+```bash
+# Check status of all 4 services
+win-status
+
+# Live stream combined logs from all services
+win-logs
+
+# Stream AI Engine logs only
+win-ai-logs
+
+# Stream Telegram Bot logs only
+win-bot-logs
+
+# Restart all services
+win-restart
+
+# Stop all services
+win-stop
+```
+
+---
+
+## 🔄 3. Updating to Latest Code from GitHub
+
+When you push new changes to GitHub, update your AWS server in 1 step:
+
+```bash
+cd ~/win && git pull && win-restart
+```
+
+If dependencies in `requirements.txt` changed:
 ```bash
 cd ~/win
 git pull
-```
-
-### Step 2: Install Dependencies
-```bash
 source .venv/bin/activate
 pip install -r requirements.txt
+win-restart
 ```
 
-### Step 3: Restart Services
+---
 
-**Option A: Restart Individual Services**
+## 📊 4. Standard `systemctl` Commands
+
+### Check Status
 ```bash
-# Restart the main API service
-sudo systemctl restart win-api
+# All services:
+sudo systemctl status win-ai win-telegram win-scraper win-api --no-pager
 
-# Restart the scraper service
-sudo systemctl restart win-scraper
-
-# Restart the Telegram bot service
-sudo systemctl restart win-telegram
-```
-
-**Option B: Restart All Services**
-```bash
-sudo systemctl restart win-api win-scraper win-telegram
-```
-
-### Step 4: Check Service Status
-```bash
-# Check all win services
-sudo systemctl status win-api win-scraper win-telegram
-
-# Check individual service
+# Individual services:
+sudo systemctl status win-ai
+sudo systemctl status win-telegram
+sudo systemctl status win-scraper
 sudo systemctl status win-api
 ```
 
-### Step 5: View Service Logs
+### Restart Services
 ```bash
-# View API logs
-sudo journalctl -u win-api -f
+# Restart all:
+sudo systemctl restart win-*
 
-# View scraper logs
+# Restart individual:
+sudo systemctl restart win-ai
+sudo systemctl restart win-telegram
+sudo systemctl restart win-scraper
+sudo systemctl restart win-api
+```
+
+### Stop / Start Services
+```bash
+# Stop all:
+sudo systemctl stop win-ai win-telegram win-scraper win-api
+
+# Start all:
+sudo systemctl start win-ai win-telegram win-scraper win-api
+```
+
+---
+
+## 📜 5. Viewing Logs with `journalctl`
+
+```bash
+# Live stream AI Engine log:
+sudo journalctl -u win-ai -f
+
+# Live stream Telegram Bot log:
+sudo journalctl -u win-telegram -f
+
+# Live stream Scraper log:
 sudo journalctl -u win-scraper -f
 
-# View Telegram bot logs
-sudo journalctl -u win-telegram -f
+# View last 100 log lines:
+sudo journalctl -u win-ai -n 100 --no-pager
 ```
 
-## 🛑 How to Stop Unwanted Services
+---
 
-### Check All Running Services
+## ⚙️ 6. Environment Configuration
+
+All services share the unified environment configuration at:
 ```bash
-# List all active services
-sudo systemctl list-units --type=service --state=running
-
-# List all win-related services
-sudo systemctl list-units --type=service | grep win
+/etc/win/win.env
 ```
 
-### Stop Specific Services
+### To Edit:
 ```bash
-# Stop API service
-sudo systemctl stop win-api
-
-# Stop scraper service
-sudo systemctl stop win-scraper
-
-# Stop Telegram bot service
-sudo systemctl stop win-telegram
+sudo nano /etc/win/win.env
 ```
 
-### Disable Services (prevent auto-start)
-```bash
-# Disable from starting on boot
-sudo systemctl disable win-api
-sudo systemctl disable win-scraper
-sudo systemctl disable win-telegram
+### Expected Environment Variables:
+```ini
+# Supabase PostgreSQL connection string
+DATABASE_URL=postgresql://postgres.zyryxnifpduwsulglhdq:JafAasi1517@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres
+
+# Telegram Bot Token from @BotFather
+TELEGRAM_BOT_TOKEN=8486018151:AAEgqW2jE5W1u1E2x6qD7yZ8_example
+
+# Prediction & Game APIs
+PREDICTION_API_URL=http://127.0.0.1:8000/api/state
+WINGO_API_URL=https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json
 ```
 
-### Enable Services (allow auto-start)
-```bash
-# Enable to start on boot
-sudo systemctl enable win-api
-sudo systemctl enable win-scraper
-sudo systemctl enable win-telegram
-```
+*After editing, always run `win-restart`.*
 
-## 🔧 Complete Service Management
+---
 
-### Stop All Win Services
-```bash
-sudo systemctl stop win-api win-scraper win-telegram
-```
+## 🔍 7. Troubleshooting Common Issues
 
-### Start All Win Services
-```bash
-sudo systemctl start win-api win-scraper win-telegram
-```
+### 1. Telegram Bot is not sending messages:
+- Check token in `/etc/win/win.env`
+- Verify bot logs: `win-bot-logs`
+- Test network connectivity: `curl -s https://api.telegram.org`
 
-### Restart All Win Services
-```bash
-sudo systemctl restart win-api win-scraper win-telegram
-```
+### 2. AI Engine is waiting for draws:
+- Check if scraper is running: `sudo systemctl status win-scraper`
+- Verify scraper logs: `sudo journalctl -u win-scraper -f`
+- Verify Supabase DB connection: `cd ~/win && .venv/bin/python test_db.py`
 
-### Check All Win Services Status
-```bash
-sudo systemctl status win-api win-scraper win-telegram
-```
-
-## 📋 Service Files Location
-
-Service files are located at:
-```bash
-/etc/systemd/system/win-api.service
-/etc/systemd/system/win-scraper.service
-/etc/systemd/system/win-telegram.service
-```
-
-### View Service Configuration
-```bash
-# View API service configuration
-sudo cat /etc/systemd/system/win-api.service
-
-# View scraper service configuration
-sudo cat /etc/systemd/system/win-scraper.service
-
-# View Telegram bot service configuration
-sudo cat /etc/systemd/system/win-telegram.service
-```
-
-## 🧹 Remove Unwanted Services
-
-### Stop and Disable Service
-```bash
-# Stop the service
-sudo systemctl stop win-api
-
-# Disable from auto-start
-sudo systemctl disable win-api
-
-# Remove service file
-sudo rm /etc/systemd/system/win-api.service
-
-# Reload systemd
-sudo systemctl daemon-reload
-```
-
-## 🔍 Monitor System Resources
-
-### Check CPU and Memory Usage
-```bash
-# Check overall system resources
-htop
-
-# Or use top
-top
-
-# Check specific process
-ps aux | grep python
-```
-
-### Check Disk Usage
-```bash
-# Check disk space
-df -h
-
-# Check directory size
-du -sh ~/win
-```
-
-## 🎯 Recommended Setup for Your System
-
-### Start Only Essential Services
-```bash
-# If you only want Telegram predictions (no API, no scraper)
-sudo systemctl stop win-api win-scraper
-sudo systemctl disable win-api win-scraper
-sudo systemctl start win-telegram
-sudo systemctl enable win-telegram
-
-# If you want full system (API + scraper + Telegram)
-sudo systemctl start win-api win-scraper win-telegram
-sudo systemctl enable win-api win-scraper win-telegram
-```
-
-### Run Scraper Separately (if needed)
-```bash
-# If you want to run scraper manually instead of as service
-cd ~/win
-source .venv/bin/activate
-python backend/scraper.py
-```
-
-### Run Telegram Bot Separately (if needed)
-```bash
-# If you want to run bot manually instead of as service
-cd ~/win
-source .venv/bin/activate
-python telegram_bot.py
-```
-
-## 🔄 Service Dependency Order
-
-Services have dependencies:
-- **win-scraper**: Runs independently (collects data)
-- **win-api**: Depends on scraper data (provides predictions)
-- **win-telegram**: Depends on API (sends predictions via Telegram)
-
-**Recommended startup order:**
-```bash
-sudo systemctl start win-scraper
-sleep 5
-sudo systemctl start win-api
-sleep 5
-sudo systemctl start win-telegram
-```
-
-## 📊 Enhanced System Features (Now Active)
-
-Your enhanced system now automatically:
-- ✅ Fetches data from Supabase for training
-- ✅ Cleans up 2-day old data automatically
-- ✅ Uses sophisticated existing intelligence
-- ✅ Integrates with daily Supabase data
-
-**No additional setup needed - just pull and restart services!**
-
-## 🚨 Troubleshooting
-
-### Service Won't Start
-```bash
-# Check service status for errors
-sudo systemctl status win-api
-
-# View detailed logs
-sudo journalctl -u win-api -n 50 --no-pager
-
-# Check if port is already in use
-sudo netstat -tlnp | grep 8000
-```
-
-### Service Keeps Restarting
-```bash
-# Check logs for crash reasons
-sudo journalctl -u win-api -n 100 --no-pager
-
-# Test manually
-cd ~/win
-source .venv/bin/activate
-python backend/server.py
-```
-
-### Database Connection Issues
-```bash
-# Test database connection
-cd ~/win
-source .venv/bin/activate
-python -c "from backend.database import engine; print('Connected')"
-```
-
-## 📝 Quick Reference
-
-**Start all services:**
-```bash
-sudo systemctl start win-api win-scraper win-telegram
-```
-
-**Stop all services:**
-```bash
-sudo systemctl stop win-api win-scraper win-telegram
-```
-
-**Check status:**
-```bash
-sudo systemctl status win-api win-scraper win-telegram
-```
-
-**View logs:**
-```bash
-sudo journalctl -u win-api -f
-```
-
-**Restart after deployment:**
-```bash
-cd ~/win && git pull && sudo systemctl restart win-api win-scraper win-telegram
-```
+### 3. Out of Memory on `t2.micro` / `t3.micro`:
+- Check memory: `free -h`
+- Enable 2GB swap space:
+  ```bash
+  sudo fallocate -l 2G /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+  ```
