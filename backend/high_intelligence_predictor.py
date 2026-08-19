@@ -347,22 +347,45 @@ def three_level_win_probability(p1: float, p2: float, p3: float, rho: float = 0.
     return max(0.005, min(0.999, p_corr))
 
 
+def calculate_risk_of_ruin_3_levels(calibrated_p_single: float) -> float:
+    """Calculate probability of losing all 3 levels in Martingale progression.
+    
+    For PURE ACCURACY mode, this must be < 0.05 (5%).
+    Requires ~68% single-round accuracy to pass.
+    """
+    p_loss_single = 1.0 - calibrated_p_single
+    # Conservative estimate: assume some correlation between rounds
+    correlation_factor = 1.15  # Slight positive correlation in losing streaks
+    p_ruin = (p_loss_single ** 3) * correlation_factor
+    return min(1.0, max(0.0, p_ruin))
+
+
 def recommend_strike_level(calibrated_p_win_in_3: float,
                            single_p: float) -> Tuple[str, float]:
     """Return (strike_label, recommended_confidence_pct) for Telegram.
 
     Levels map to Martingale progression sizing hints.
+    
+    PURE ACCURACY MODE: Only recommends when risk_of_ruin < 5%
+    This requires ~68%+ single-round accuracy for safety.
     """
-    # First ensure per-round p is high enough
-    if calibrated_p_win_in_3 >= 0.985 and single_p >= 0.62:
+    # Calculate risk of ruin for 3-level Martingale
+    risk_of_ruin = calculate_risk_of_ruin_3_levels(single_p)
+    
+    # PURE ACCURACY THRESHOLD: Must have < 5% chance of losing all 3 levels
+    if risk_of_ruin >= 0.05:
+        return "HOLD_RISK_TOO_HIGH", 0.0
+    
+    # Now apply strike levels only for safe predictions
+    if calibrated_p_win_in_3 >= 0.985 and single_p >= 0.68:
         return "ULTIMATE_CONVICTION", min(98.5, single_p * 100.0)
-    if calibrated_p_win_in_3 >= 0.965 and single_p >= 0.59:
-        return "BEAST_CONVICTION", min(96.0, single_p * 100.0)
-    if calibrated_p_win_in_3 >= 0.94 and single_p >= 0.57:
-        return "HIGH_CONVICTION", min(93.0, single_p * 100.0)
-    if calibrated_p_win_in_3 >= 0.90 and single_p >= 0.55:
-        return "MODERATE_CONVICTION", min(89.5, single_p * 100.0)
-    return "CONSERVATIVE", min(87.0, 82.0 + single_p * 10.0)
+    if calibrated_p_win_in_3 >= 0.970 and single_p >= 0.66:
+        return "BEAST_CONVICTION", min(97.0, single_p * 100.0)
+    if calibrated_p_win_in_3 >= 0.950 and single_p >= 0.64:
+        return "HIGH_CONVICTION", min(95.0, single_p * 100.0)
+    if calibrated_p_win_in_3 >= 0.920 and single_p >= 0.62:
+        return "MODERATE_CONVICTION", min(92.0, single_p * 100.0)
+    return "CONSERVATIVE_SAFE", min(90.0, single_p * 100.0)
 
 
 # ============================================================================
@@ -391,6 +414,7 @@ class PredictionResult:
     markov_weight: float                      # weight assigned to 2-5 gram model
     streak_weight: float                      # weight assigned to streak model
     entropy: float                            # digit distribution entropy
+    risk_of_ruin_3_levels: float = 0.0        # NEW: P(losing all 3 Martingale levels)
 
 
 class HighIntelligencePredictor:
@@ -542,6 +566,7 @@ class HighIntelligencePredictor:
         if len(self.history) < 5:
             # Not enough data yet: flat baseline but informative structure
             dist = np.full(10, 0.1)
+            risk_ruin = calculate_risk_of_ruin_3_levels(0.5)  # 12.5% ruin at 50% accuracy
             return PredictionResult(
                 prediction="Big",
                 probability_big=0.5,
@@ -551,13 +576,14 @@ class HighIntelligencePredictor:
                 hedgeNum=5,
                 calibrated_p_single=0.5,
                 calibrated_p_win_in_3=1.0 - 0.5 ** 3,
-                strike_quality="CONSERVATIVE",
+                strike_quality="HOLD_INSUFFICIENT_DATA",
                 digit_distribution=dist,
                 h1=[0.1] * 10, h2=[0.1] * 10, h3=[0.1] * 10,
                 change_probability=0.0, regime_strength=0.5,
                 streak_run_length=0,
                 ctw_weight=0.25, markov_weight=0.25, streak_weight=0.25,
                 entropy=math.log(10),
+                risk_of_ruin_3_levels=risk_ruin,
             )
 
         # ----- 1. produce per-model P(Big) for the dynamic ensemble --------
@@ -619,6 +645,14 @@ class HighIntelligencePredictor:
 
         strike, conf_pct = recommend_strike_level(p_win_in_3, cal_single)
 
+        # PURE ACCURACY MODE: If risk is too high, override prediction to HOLD
+        risk_of_ruin = calculate_risk_of_ruin_3_levels(cal_single)
+        if risk_of_ruin >= 0.05:
+            # Force HOLD - do not predict when risk exceeds 5%
+            strike = "HOLD_RISK_TOO_HIGH"
+            conf_pct = 0.0
+            # Still compute the result but mark it as unsafe
+
         sorted_idx = np.argsort(digit_dist)[::-1]
         target_num = int(sorted_idx[0])
         hedge_num = int(sorted_idx[1])
@@ -646,6 +680,7 @@ class HighIntelligencePredictor:
             markov_weight=round(float(w[1]), 4),
             streak_weight=round(float(w[2]), 4),
             entropy=round(float(entropy), 4),
+            risk_of_ruin_3_levels=round(float(risk_of_ruin), 4),  # NEW: Expose risk metric
         )
 
         # ----- 5. defer ensemble update until we have the actual outcome. --

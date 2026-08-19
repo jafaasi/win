@@ -214,8 +214,27 @@ def format_prediction_message(data, previous_result=None):
             "BEAST_CONVICTION": "🔥",
             "HIGH_CONVICTION": "⚡",
             "MODERATE_CONVICTION": "🎯",
+            "CONSERVATIVE_SAFE": "🛡️",
             "VALIDATED": "✅",
+            "HOLD_RISK_TOO_HIGH": "⚠️",
+            "HOLD_INSUFFICIENT_DATA": "⏳",
         }.get(strike_quality, "🧿")
+
+        # Handle HOLD scenarios - show warning instead of prediction
+        if strike_quality in ["HOLD_RISK_TOO_HIGH", "HOLD_INSUFFICIENT_DATA"]:
+            hold_reason = "Risk exceeds 5% threshold for 3-level Martingale" if strike_quality == "HOLD_RISK_TOO_HIGH" else "Insufficient historical data"
+            return f"""<b>◈ EVOSEQ</b>  <i>LIVE INTELLIGENCE</i>
+━━━━━━━━━━━━━━━━━━
+⚠️ <b>HOLD - NO PREDICTION</b>
+
+<b>Reason:</b> {hold_reason}
+<b>Strategy:</b> Pure Accuracy Mode (3-Level Safe)
+
+The engine is monitoring the market and will issue a prediction
+only when the risk of losing 3 consecutive rounds drops below 5%.
+
+<i>Patience ensures long-term profitability.</i>
+"""
 
         martingale_block = ""
         try:
