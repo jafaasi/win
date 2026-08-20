@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import random
+from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Any, Optional, Sequence, Tuple
 import numpy as np
@@ -12,6 +13,7 @@ from .multi_model import MultiModelEnsemble, ModelFamilyOutput
 from .meta_learner import MetaLearner, MetaLearnerOutput
 from .calibration import ConfidenceCalibrator
 from .concept_drift import ConceptDriftDetector
+from .hypothesis_lab import HypothesisLab
 
 
 @dataclass
@@ -34,6 +36,10 @@ class GenerationRecord:
     rejected_models: List[str]
     promoted_models: List[str]
     status: str
+    hypothesis_report: Dict[str, Any] = field(default_factory=dict)
+    is_challenger: bool = False
+    challenger_type: str = "default"  # "default", "hypothesis_driven", "regime_aware"
+    confidence_interval: Tuple[float, float] = (0.0, 1.0)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -283,6 +289,9 @@ class DailyEvolution:
 
     def __init__(self, generation: int = 1):
         self.current_generation = generation
+        self.hypothesis_lab = HypothesisLab(generation=generation)
+        self.challenger_history: List[GenerationRecord] = []
+        self.champion_history: List[GenerationRecord] = []
 
     def run_daily_evolution(
         self,
@@ -316,6 +325,15 @@ class DailyEvolution:
             folds=6,
         )
         eval_result = evaluator.evaluate_ensemble(ensemble, meta, calibrator, dlist[:test_cutoff])
+        
+        # Run hypothesis lab to discover and test patterns
+        hypothesis_report = {}
+        try:
+            validated_hypotheses = self.hypothesis_lab.discover_and_test_all(dlist[:train_cutoff])
+            hypothesis_report = self.hypothesis_lab.get_hypothesis_report()
+            print(f"[DailyEvolution] Hypothesis lab completed: {hypothesis_report}")
+        except Exception as e:
+            print(f"[DailyEvolution] Hypothesis lab error: {e}")
 
         # Locked OOS: single final evaluation on the last 50 rounds never seen during tuning
         oos_accuracy = eval_result["oos_accuracy"]
@@ -368,7 +386,7 @@ class DailyEvolution:
 
         record = GenerationRecord(
             generation=self.current_generation,
-            created_at=str(np.datetime64("now")),
+            created_at=datetime.utcnow().isoformat(),
             training_cutoff=int(train_cutoff),
             validation_cutoff=int(val_cutoff),
             test_cutoff=int(test_cutoff),
@@ -385,7 +403,22 @@ class DailyEvolution:
             rejected_models=rejected,
             promoted_models=promoted,
             status=status,
+            hypothesis_report=hypothesis_report,
         )
+        
+        # Calculate confidence interval for OOS accuracy
+        if n_preds >= 30:
+            p_hat = oos_accuracy
+            se = math.sqrt(max(0.0, p_hat * (1 - p_hat) / n_preds))
+            z = 1.96
+            ci = (max(0.0, p_hat - z * se), min(1.0, p_hat + z * se))
+            record.confidence_interval = ci
+        
+        # Store in appropriate history
+        if status == "PROMOTED":
+            self.champion_history.append(record)
+        else:
+            self.challenger_history.append(record)
 
         return record
 

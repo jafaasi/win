@@ -17,6 +17,14 @@ from datetime import datetime, timedelta
 from backend.extraordinary_intelligence import ExtraordinaryIntelligence
 from backend.three_level_winning import ThreeLevelWinningAlgorithm
 
+# Import the new AdaptiveIntelligenceEngine
+try:
+    from backend.intelligence.engine import AdaptiveIntelligenceEngine
+    ADAPTIVE_ENGINE_AVAILABLE = True
+except ImportError:
+    ADAPTIVE_ENGINE_AVAILABLE = False
+    print("[EVOSEQ] AdaptiveIntelligenceEngine not available, using legacy pipeline")
+
 # Add EVOSEQ path for Python imports
 evoseq_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'EVOSEQ')
 if evoseq_path not in sys.path:
@@ -46,6 +54,8 @@ class GlobalBrain:
         self.drift_detector = None
         self.pattern_extractor = None
         self.adaptive_tuner = None
+        self.adaptive_intelligence_engine = None  # New adaptive engine
+        self.use_adaptive_engine = ADAPTIVE_ENGINE_AVAILABLE
         self.is_initialized = False
 
     def init_or_load(self):
@@ -54,6 +64,20 @@ class GlobalBrain:
             print("EVO_DEBUG: Already initialized")
             return
 
+        # Try to use the new AdaptiveIntelligenceEngine if available
+        if self.use_adaptive_engine:
+            try:
+                print("EVO_DEBUG: Initializing AdaptiveIntelligenceEngine...")
+                self.adaptive_intelligence_engine = AdaptiveIntelligenceEngine(generation=1)
+                print("EVO_DEBUG: AdaptiveIntelligenceEngine initialized successfully")
+                self.is_initialized = True
+                return
+            except Exception as e:
+                print(f"EVO_DEBUG: Failed to initialize AdaptiveIntelligenceEngine: {e}")
+                print("EVO_DEBUG: Falling back to legacy pipeline")
+                self.use_adaptive_engine = False
+
+        # Legacy pipeline initialization
         self.predictor = EnhancedAdaptiveRNGPredictor(output_space_size=10, threshold=0.02)
         print("EVO_DEBUG: Initialized Enhanced Predictor")
         
@@ -177,9 +201,170 @@ class DeepPyTorchWrapper(BaseModel):
         probs = self.model.predict_proba(eval_ctx)
         return np.array(probs)
 
+def run_adaptive_engine_cycle(history, db=None):
+    """
+    Run the new AdaptiveIntelligenceEngine prediction cycle.
+    This replaces the legacy EVOSEQ pipeline with the full adaptive intelligence system.
+    """
+    engine = _global_brain.adaptive_intelligence_engine
+    
+    # Initialize engine if not already done
+    if not engine.initialized:
+        print("[AdaptiveEngine] Cold-start initialization from history...")
+        init_report = engine.initialize_from_history(history)
+        print(f"[AdaptiveEngine] Initialized: {init_report}")
+        
+        # Prime calibrator from existing audit records if available
+        if db:
+            try:
+                from backend.database import PredictionAudit
+                audit_rows = db.query(PredictionAudit).filter(
+                    PredictionAudit.actual_size.isnot(None)
+                ).order_by(PredictionAudit.id.desc()).limit(5000).all()
+                
+                audit_records = [
+                    {
+                        "probability_big": row.probability_big,
+                        "actual_size": row.actual_size
+                    }
+                    for row in audit_rows if row.probability_big is not None
+                ]
+                
+                if audit_records:
+                    n_primed = engine.prime_calibrator_from_audit(audit_records)
+                    print(f"[AdaptiveEngine] Primed calibrator with {n_primed} audit records")
+            except Exception as e:
+                print(f"[AdaptiveEngine] Could not prime calibrator: {e}")
+    
+    # Get next issue number for prediction
+    next_issue = None
+    try:
+        if db:
+            from backend.database import Outcome
+            last_outcome = db.query(Outcome).order_by(Outcome.sequence_no.desc()).first()
+            if last_outcome:
+                next_issue = str(last_outcome.sequence_no + 1)
+    except Exception as e:
+        print(f"[AdaptiveEngine] Could not determine next issue: {e}")
+    
+    # Run prediction through the full adaptive pipeline
+    print("[AdaptiveEngine] Running full adaptive intelligence prediction...")
+    prediction_result = engine.predict(
+        recent_history_digits=history,
+        next_issue_number=next_issue,
+        next_sequence_no=int(next_issue) if next_issue else 0
+    )
+    
+    print(f"[AdaptiveEngine] Prediction: {prediction_result['prediction']} "
+          f"with {prediction_result['confidence']}% confidence")
+    print(f"[AdaptiveEngine] Edge status: {prediction_result['edgeStatus']}")
+    print(f"[AdaptiveEngine] Action: {prediction_result['action']}")
+    
+    # Convert to the expected output format for backward compatibility
+    result = {
+        "prediction": prediction_result["prediction"],
+        "probability_big": prediction_result["probability_big"],
+        "probability_small": prediction_result["probability_small"],
+        "confidence": prediction_result["confidence"],
+        "targetNum": prediction_result["targetNum"],
+        "hedgeNum": prediction_result["hedgeNum"],
+        "nextIssue": prediction_result["nextIssue"],
+        "action": prediction_result["action"],
+        "strikeQuality": prediction_result["strikeQuality"],
+        "modelConsensus": prediction_result["modelConsensus"],
+        "martingaleLevel": prediction_result["martingaleLevel"],
+        "driftLevel": prediction_result["driftLevel"],
+        "patternName": prediction_result["patternName"],
+        "totalSamplesTrained": prediction_result["totalSamplesTrained"],
+        "ensembleWeights": prediction_result["ensembleWeights"],
+        "modelPBigVector": prediction_result["modelPBigVector"],
+        # New adaptive intelligence fields
+        "generation": prediction_result["generation"],
+        "stateFingerprint": prediction_result["stateFingerprint"],
+        "stateSimilarity": prediction_result["stateSimilarity"],
+        "stateSampleSize": prediction_result["stateSampleSize"],
+        "entropy": prediction_result["entropy"],
+        "regime": prediction_result["regime"],
+        "adversarialScore": prediction_result["adversarialScore"],
+        "contradictionScore": prediction_result["contradictionScore"],
+        "calibratedProbability": prediction_result["calibratedProbability"],
+        "calibrationError": prediction_result["calibrationError"],
+        "oosScore": prediction_result["oosScore"],
+        "baselineScore": prediction_result["baselineScore"],
+        "edgeStatus": prediction_result["edgeStatus"],
+        "learningStatus": prediction_result["learningStatus"],
+        "modelReliability": prediction_result["modelReliability"],
+        "knowledgeVersion": prediction_result["knowledgeVersion"],
+        # Internal diagnostic data
+        "metaLearner": prediction_result["metaLearner"],
+        "critic": prediction_result["critic"],
+        "abstention": prediction_result["abstention"],
+        "calibration": prediction_result["calibration"],
+        "threeLevel": prediction_result["threeLevel"],
+        "drift": prediction_result["drift"],
+        "similarState": prediction_result["similarState"],
+    }
+    
+    return result
+
+
+def resolve_adaptive_engine_outcome(actual_digit, history, db=None):
+    """
+    Resolve an adaptive engine prediction with the actual outcome.
+    This triggers the online learning feedback loop.
+    """
+    if not _global_brain.use_adaptive_engine or not _global_brain.adaptive_intelligence_engine:
+        return None
+    
+    try:
+        engine = _global_brain.adaptive_intelligence_engine
+        resolve_result = engine.resolve_outcome(
+            actual_digit=actual_digit,
+            history_suffix_for_partial_fit=history[-64:] if len(history) >= 64 else history,
+        )
+        
+        print(f"[AdaptiveEngine] Resolved prediction: {resolve_result['predicted']} vs {resolve_result['actual']} "
+              f"({'CORRECT' if resolve_result['correct'] else 'INCORRECT'})")
+        
+        return resolve_result
+    except Exception as e:
+        print(f"[AdaptiveEngine] Error resolving outcome: {e}")
+        return None
+
+
+def run_daily_adaptive_evolution(history, db=None):
+    """
+    Run the daily evolution cycle for the adaptive engine.
+    This performs walk-forward validation and generation promotion.
+    """
+    if not _global_brain.use_adaptive_engine or not _global_brain.adaptive_intelligence_engine:
+        return None
+    
+    try:
+        engine = _global_brain.adaptive_intelligence_engine
+        evolution_result = engine.run_daily_evolution(full_history_digits=history)
+        
+        print(f"[AdaptiveEngine] Daily evolution completed: {evolution_result['status']}")
+        print(f"[AdaptiveEngine] Generation: {evolution_result['generation']}")
+        print(f"[AdaptiveEngine] OOS accuracy: {evolution_result.get('champion_oos_accuracy', 'N/A')}")
+        
+        return evolution_result
+    except Exception as e:
+        print(f"[AdaptiveEngine] Error in daily evolution: {e}")
+        return None
+
+
 def run_evoseq_cycle(history, db=None):
     if len(history) < 10:
         return None
+    
+    # Use AdaptiveIntelligenceEngine if available and initialized
+    if _global_brain.use_adaptive_engine and _global_brain.adaptive_intelligence_engine:
+        try:
+            return run_adaptive_engine_cycle(history, db)
+        except Exception as e:
+            print(f"[AdaptiveEngine] Error: {e}, falling back to legacy pipeline")
+            _global_brain.use_adaptive_engine = False
     
     # Enhanced: Fetch recent data from Supabase for better learning
     try:
