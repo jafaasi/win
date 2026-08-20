@@ -256,6 +256,86 @@ def format_prediction_message(data: Optional[dict], previous_result: Optional[di
     """Main forecast card — text fallback when PIL card unavailable."""
     if not data:
         return "<b>✨ EVOSEQ Ultra v2</b>\n\n⏳ Intelligence service connecting..."
+    
+    return format_high_confidence_message(data, previous_result)
+
+
+def format_high_confidence_message(data: Optional[dict], previous_result: Optional[dict] = None) -> str:
+    """HIGH-CONFIDENCE TEXT-ONLY MESSAGE (no image cards) - Only for predictions passing strict filters."""
+    if not data:
+        return "<b>✨ EVOSEQ Ultra v2</b>\n\n⏳ Intelligence service connecting..."
+    
+    prediction   = _text(data.get("prediction"))
+    confidence   = float(data.get("confidence", 0))
+    target_num   = _text(data.get("targetNum"))
+    hedge_num    = _text(data.get("hedgeNum"))
+    next_issue   = _text(data.get("nextIssue"))
+    prob_big     = float(data.get("probability_big", 0.5))
+    prob_small   = float(data.get("probability_small", 0.5))
+    sample_size  = int(data.get("sampleSize", 0))
+    action       = str(data.get("action", "FORECAST"))
+    
+    max_prob = max(prob_big, prob_small)
+    pred_full = prediction.upper()
+    emoji = "🟢" if prediction.lower() == "big" else "🔵"
+    
+    # Intelligence level based on confidence
+    if confidence >= 80:
+        intel_level = "🧠 ULTRA-HIGH CONFIDENCE"
+        urgency = "🔥 STRONG SIGNAL"
+    elif confidence >= 75:
+        intel_level = "🎯 VERY HIGH CONFIDENCE"
+        urgency = "✅ HIGH PROBABILITY"
+    elif confidence >= 70:
+        intel_level = "📊 HIGH CONFIDENCE"
+        urgency = "✓ GOOD EDGE"
+    else:
+        intel_level = "⚡ MODERATE-HIGH CONFIDENCE"
+        urgency = "▹ SELECTIVE"
+    
+    # Result line from previous prediction
+    result_line = ""
+    if previous_result:
+        emoji_result = "✅" if previous_result["won"] else "❌"
+        result_line = (
+            f"\n{emoji_result} <b>Last Result:</b> "
+            f"{'WON' if previous_result['won'] else 'LOST'} "
+            f"(#{_text(previous_result.get('issue', ''))[-6:]})"
+        )
+    
+    return f"""
+<b>{emoji} HIGH-CONFIDENCE PREDICTION {emoji}</b>
+
+{urgency} | {intel_level}
+
+━━━━━━━━━━━━━━━━━━━━━━
+📋 <b>Prediction Details:</b>
+├ Target Issue: <code>#{next_issue[-10:] if len(next_issue) >= 10 else next_issue}</code>
+├ Direction: <b>{pred_full}</b>
+├ Confidence: <b>{confidence:.1f}%</b>
+├ Primary Number: <b>{target_num}</b>
+└ Hedge Number: <b>{hedge_num}</b>
+
+📈 <b>Statistical Edge:</b>
+├ P({pred_full}): {max_prob:.1%}
+├ P(Opposite): {(1-max_prob):.1%}
+├ Sample Size: {sample_size} rounds
+└ Edge Over Random: +{(max_prob - 0.5)*100:.1f}%
+
+🔐 <b>Intelligence Filters Passed:</b>
+✓ Confidence &gt; 65%
+✓ Probability &gt; 65%
+✓ Sample Size &gt; 30
+✓ Active Signal (not passive)
+✓ System Synced{result_line}
+
+⚠️ <b>Risk Management:</b>
+• Never bet more than 2-3% of bankroll
+• Stop after 2 consecutive losses
+• This is statistical analysis, not gambling advice
+
+<i>Ultra Intelligence v2.0 — High-confidence filter active</i>
+""".strip()
 
     prediction   = _text(data.get("prediction"))
     confidence   = _pct(data.get("confidence"))
@@ -1133,6 +1213,40 @@ async def check_and_send_predictions(context):
         except Exception as e:
             logger.warning("Issue comparison error: %s", e)
         
+        # HIGH-CONFIDENCE FILTER: Only send predictions with confidence >= 65%
+        confidence = float(data.get("confidence", 0))
+        action = str(data.get("action", ""))
+        status = str(data.get("status", ""))
+        
+        # Must be SYNCED status
+        if status != "SYNCED":
+            logger.debug(f"Skipping prediction - System not synced (status={status})")
+            return
+        
+        # Confidence threshold: minimum 65%
+        if confidence < 65.0:
+            logger.debug(f"🔒 LOW CONFIDENCE FILTERED: {confidence:.1f}% < 65%")
+            return
+        
+        # Only ACTIVE or STRONG_ACTIVE actions (not CAUTION, SKIP, WAIT)
+        if action not in ["ACTIVE", "STRONG_ACTIVE"]:
+            logger.debug(f"🔒 PASSIVE ACTION FILTERED: action={action}")
+            return
+        
+        # Probability check: max probability must be > 0.65
+        prob_big = float(data.get("probability_big", 0.5))
+        prob_small = float(data.get("probability_small", 0.5))
+        max_prob = max(prob_big, prob_small)
+        if max_prob < 0.65:
+            logger.debug(f"🔒 WEAK PROBABILITY FILTERED: max_prob={max_prob:.3f}")
+            return
+        
+        # Sample size must be sufficient (>30 rounds)
+        sample_size = int(data.get("sampleSize", 0))
+        if sample_size < 30:
+            logger.debug(f"🔒 INSUFFICIENT DATA: sample_size={sample_size} < 30")
+            return
+        
         # CRITICAL FIX: Check if we've already sent a prediction for this target issue
         # AND the prediction content hasn't changed (same generation, same confidence)
         # This allows re-sending if the AI engine regenerated a fresher prediction for the same issue
@@ -1154,8 +1268,8 @@ async def check_and_send_predictions(context):
                            next_issue, last_gen, curr_gen, last_conf, curr_conf)
                 # Allow sending the refreshed prediction
         
-        logger.info("New prediction round: current=%s → predicting next=%s", 
-                   current_issue, next_issue)
+        logger.info("✅ HIGH-CONFIDENCE PREDICTION: current=%s → predicting next=%s | %.1f%% | %s", 
+                   current_issue, next_issue, confidence, action)
         last_prediction_issue = next_issue  # Track by TARGET issue, not current actual
 
         previous_result = None
@@ -1164,14 +1278,8 @@ async def check_and_send_predictions(context):
             if previous_result:
                 logger.info("Previous %s: issue #%s", "WON" if previous_result["won"] else "LOST", previous_result["issue"])
 
-        card_bytes = None
-        try:
-            card_bytes = render_forecast_card(data, previous_result)
-        except Exception as e:
-            logger.warning("Card render failed: %s", e)
-
-        msg_text    = format_prediction_message(data, previous_result)
-        caption_txt = format_forecast_caption(data, previous_result)
+        # TEXT-ONLY MESSAGE (NO IMAGE CARD)
+        msg_text = format_high_confidence_message(data, previous_result)
         loop_time   = asyncio.get_event_loop().time()
 
         for user_id in list(subscribed_users):
@@ -1181,22 +1289,13 @@ async def check_and_send_predictions(context):
             if loop_time - last_t < NOTIFICATION_COOLDOWN and previous_result is None:
                 continue
             try:
-                if card_bytes:
-                    card_bytes.seek(0)
-                    await context.bot.send_photo(
-                        chat_id=user_id,
-                        photo=card_bytes,
-                        caption=caption_txt,
-                        parse_mode="HTML",
-                        reply_markup=main_keyboard(),
-                    )
-                else:
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=msg_text,
-                        parse_mode="HTML",
-                        reply_markup=main_keyboard(),
-                    )
+                # ALWAYS send TEXT ONLY - no image cards
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=msg_text,
+                    parse_mode="HTML",
+                    reply_markup=main_keyboard(),
+                )
                 last_notification_time[user_id] = loop_time
             except Exception as e:
                 logger.warning("Send to %s failed: %s", user_id, e)
