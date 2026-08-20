@@ -56,6 +56,12 @@ from backend.exhaustive_exploit import (
 from backend.prediction_intelligence import EvidenceGate
 from backend.pattern_intelligence import PatternIntelligence
 from backend.three_level_winning import ThreeLevelWinningAlgorithm
+from backend.adversarial_engine import AdversarialEngine
+from backend.state_memory import StateMemory
+from backend.meta_learner import MetaLearner
+from backend.evolution_controller import EvolutionController
+from backend.decision_memory import DecisionMemory, DecisionRecord
+from backend.intelligence.state_fingerprint import compute_state_fingerprint
 
 
 # ============================================================================
@@ -393,6 +399,68 @@ class StreakState:
         elif self.loss_streak >= 3:
             return base + 0.01 * (self.loss_streak - 2)
         return base
+
+
+# ============================================================================
+# 5.5  TAIE Decision Tree — STRONG / MODERATE / WEAK / ABSTAIN
+# ============================================================================
+
+def compute_taie_tier(
+    cal_single: float,
+    p_win_in_3: float,
+    model_consensus: float,
+    adversarial_score: float,
+    adversarial_verdict: str,
+    exploit_score: float,
+    reject_iid: bool,
+    state_memory_verdict: str,
+    validated_edge: bool,
+    evolution_edge_status: str,
+) -> str:
+    """
+    Classify the current prediction into one of four TAIE tiers.
+
+    STRONG   — multiple independent confirmations, low adversarial opposition
+    MODERATE — decent signal, some caveats
+    WEAK     — signal present but not well-confirmed
+    ABSTAIN  — contradictions outweigh support; engine should not bet
+
+    This is NOT the same as strikeQuality (which is a Telegram display tier).
+    TAIE tier is a scientific assessment used by EvolutionController and
+    DecisionMemory to segment historical performance.
+    """
+    # ABSTAIN: adversarial engine says to stay out, OR edge status is NO_EDGE
+    if adversarial_verdict == "ABSTAIN":
+        return "ABSTAIN"
+    if evolution_edge_status == "NO_EDGE" and cal_single < 0.56:
+        return "ABSTAIN"
+
+    # Positive evidence score (0-6)
+    pos = 0
+    if cal_single >= 0.58:          pos += 1
+    if p_win_in_3 >= 0.90:          pos += 1
+    if model_consensus >= 0.70:     pos += 1
+    if exploit_score >= 0.35:       pos += 1
+    if validated_edge:              pos += 1
+    if state_memory_verdict == "RELIABLE": pos += 1
+
+    # Negative evidence score (adversarial pressure)
+    neg = 0
+    if adversarial_score >= 0.45:   neg += 1
+    if adversarial_verdict in ("CAUTION", "OVERRIDE"): neg += 1
+    if not reject_iid:              neg += 1
+    if evolution_edge_status == "NO_EDGE": neg += 1
+
+    net = pos - neg
+
+    if net >= 4:
+        return "STRONG"
+    elif net >= 2:
+        return "MODERATE"
+    elif net >= 0:
+        return "WEAK"
+    else:
+        return "ABSTAIN"
 
 
 # ============================================================================

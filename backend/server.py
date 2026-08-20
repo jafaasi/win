@@ -25,6 +25,32 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.database import SessionLocal, AIBrainState, PredictionAudit, save_live_draws
 
+# ---------------------------------------------------------------------------
+# EVOSEQ Adaptive Intelligence Engine v3 — lazy import bridge
+# Import is guarded because the server runs on Render free tier which may not
+# have a full ML runtime installed. Falls back gracefully on error.
+# ---------------------------------------------------------------------------
+_BRIDGE = None
+_BRIDGE_IMPORT_ERROR = None
+
+
+def _get_bridge():
+    """Lazily instantiate the EVOSEQBridge singleton."""
+    global _BRIDGE, _BRIDGE_IMPORT_ERROR
+    if _BRIDGE is not None:
+        return _BRIDGE
+    if _BRIDGE_IMPORT_ERROR is not None:
+        return None
+    try:
+        from backend.evoseq_bridge import get_bridge as _gb
+        _BRIDGE = _gb()
+        return _BRIDGE
+    except Exception as _e:
+        _BRIDGE_IMPORT_ERROR = str(_e)
+        print(f"[SERVER] Bridge unavailable: {_e}", flush=True)
+        return None
+
+
 app = FastAPI(title="WinGo Database Gateway - Free Tier Optimized")
 
 # Allow all origins for Vercel + Localhost
