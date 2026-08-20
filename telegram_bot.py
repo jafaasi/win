@@ -682,24 +682,45 @@ def format_pattern_message(data: Optional[dict]) -> str:
 def format_status_message(data: Optional[dict]) -> str:
     online = data is not None and not data.get("error")
     status_str = "🟢 <b>All Systems Operational</b>" if online else "🔴 <b>Cluster Offline</b>"
-    issue = _text(data.get("currentIssue")) if online else "—"
+    current_issue = _text(data.get("currentIssue")) if online else "—"
+    next_issue = _text(data.get("nextIssue")) if online else "—"
     engine = _text(data.get("patternName", "Ultra v2.0")) if online else "—"
     ml_label = _text(data.get("martingaleLevelLabel", "—")) if online else "—"
     drift = _text(data.get("driftLevel", "STABLE")) if online else "—"
     n_samples = _text(data.get("totalSamplesTrained")) if online else "—"
+    
+    # Check for stale data warning
+    stale_warning = ""
+    if data and data.get("_stale_warning"):
+        stale_warning = (
+            "\n⚠️ <b>SYNCHRONIZATION WARNING:</b>\n"
+            "Prediction data may be stale. System is refreshing..."
+        )
+    
+    # Validate issue progression
+    issue_status = "✅ Synchronized"
+    if online and current_issue and next_issue:
+        try:
+            if str(next_issue) <= str(current_issue):
+                issue_status = "🔄 Refreshing..."
+        except Exception:
+            issue_status = "❓ Unknown"
 
     return f"""
 <b>◈ SYSTEM TELEMETRY</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 {status_str}
 
-<b>Issue:</b>          <code>#{issue}</code>
-<b>Engine:</b>         {engine}
-<b>Drift Regime:</b>   {drift}
-<b>Martingale:</b>     {ml_label}
-<b>Samples:</b>        {n_samples}
-<b>Database:</b>       PostgreSQL / Supabase ✅
-<b>Dispatch:</b>       {CHECK_INTERVAL}s polling
+<b>Current Issue:</b>   <code>#{current_issue}</code>
+<b>Next Prediction:</b> <code>#{next_issue}</code>
+<b>Sync Status:</b>     {issue_status}
+<b>Engine:</b>          {engine}
+<b>Drift Regime:</b>    {drift}
+<b>Martingale:</b>      {ml_label}
+<b>Samples:</b>         {n_samples}
+<b>Database:</b>        PostgreSQL / Supabase ✅
+<b>Dispatch:</b>        {CHECK_INTERVAL}s polling
+{stale_warning}
 """.strip()
 
 
@@ -737,10 +758,32 @@ def premium_help_message() -> str:
 # ═════════════════════════════════════════════════════════════════════════════
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /start command - Welcome user and display FRESH prediction.
+    Does NOT show stale cached predictions.
+    """
     user_id = update.effective_chat.id
     subscribed_users.add(user_id)
     user_filters.setdefault(user_id, "all")
-    welcome = """
+    
+    # Fetch fresh prediction data with validation
+    prediction_data = await get_prediction()
+    
+    if prediction_data:
+        # Validate freshness before displaying
+        current_issue = prediction_data.get("currentIssue")
+        next_issue = prediction_data.get("nextIssue")
+        
+        if not current_issue or not next_issue or str(next_issue) <= str(current_issue):
+            logger.warning("/start: Stale or incomplete prediction data detected")
+            # Invalidate cache
+            global last_prediction_issue, last_prediction
+            last_prediction_issue = None
+            last_prediction = None
+            # Refetch
+            prediction_data = await get_prediction()
+    
+    welcome = f"""
 <b>✨ EVOSEQ Ultra v2.0</b>
 <i>12-model intelligence, daily self-learning</i>
 ━━━━━━━━━━━━━━━━━━
@@ -753,11 +796,71 @@ Welcome! Your premium dashboard is ready.
 
 Tap below to explore.
 """.strip()
+    
     await update.message.reply_text(welcome, parse_mode="HTML", reply_markup=main_keyboard())
+    
+    # Send fresh prediction after welcome
+    if prediction_data:
+        await reply_with_forecast(update.message, prediction_data)
 
 
 async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /predict command - Fetch and display the FRESH prediction for the NEXT issue.
+    Validates that the prediction target issue is actually in the future.
+    """
     prediction_data = await get_prediction()
+    
+    if not prediction_data:
+        await update.message.reply_text(
+            "⚠️ <b>Service Temporarily Unavailable</b>\n\n"
+            "Prediction engine is connecting. Please try again in a few seconds.",
+            parse_mode="HTML",
+            reply_markup=main_keyboard()
+        )
+        return
+    
+    # CRITICAL: Validate prediction freshness before displaying
+    current_issue = prediction_data.get("currentIssue")
+    next_issue = prediction_data.get("nextIssue")
+    
+    if not current_issue or not next_issue:
+        logger.warning("/predict: Missing issue numbers in API response")
+        await update.message.reply_text(
+            "⚠️ <b>Synchronizing...</b>\n\n"
+            "Fetching latest draw data. Please try again shortly.",
+            parse_mode="HTML",
+            reply_markup=main_keyboard()
+        )
+        return
+    
+    # Validate invariant: nextIssue MUST be > currentIssue
+    try:
+        if str(next_issue) <= str(current_issue):
+            logger.error(
+                "/predict: STALE PREDICTION DETECTED - nextIssue (%s) <= currentIssue (%s)",
+                next_issue, current_issue
+            )
+            await update.message.reply_text(
+                "🔄 <b>Refreshing Prediction...</b>\n\n"
+                f"Current round: <code>#{str(current_issue)[-8:]}</code>\n"
+                "The prediction data is being updated. Please try again in a moment.",
+                parse_mode="HTML",
+                reply_markup=main_keyboard()
+            )
+            # Invalidate local cache to force fresh fetch on next request
+            global last_prediction_issue, last_prediction
+            last_prediction_issue = None
+            last_prediction = None
+            return
+    except Exception as e:
+        logger.warning("/predict: Issue comparison error: %s", e)
+    
+    logger.info(
+        "/predict: Sending prediction for round %s (current=%s)",
+        next_issue, current_issue
+    )
+    
     await reply_with_forecast(update.message, prediction_data)
 
 
@@ -819,11 +922,40 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /status command - Show system health with FRESH data validation.
+    Displays current issue synchronization state.
+    """
     data = await get_prediction()
-    status_card = render_status_card({"online": data is not None, "issue": data.get("currentIssue") if data else None})
+    
+    # Validate freshness for status display
+    if data:
+        current_issue = data.get("currentIssue")
+        next_issue = data.get("nextIssue")
+        
+        if not current_issue or not next_issue:
+            logger.warning("/status: Missing issue numbers in API response")
+        elif str(next_issue) <= str(current_issue):
+            logger.error("/status: STALE DATA - nextIssue (%s) <= currentIssue (%s)", 
+                        next_issue, current_issue)
+            # Add warning to status display
+            data["_stale_warning"] = True
+    
+    status_card = render_status_card({
+        "online": data is not None, 
+        "issue": data.get("currentIssue") if data else None,
+        "next_issue": data.get("nextIssue") if data else None,
+        "is_stale": data.get("_stale_warning", False) if data else False
+    })
     text = format_status_message(data)
+    
     if status_card:
-        await update.message.reply_photo(photo=status_card, caption=text[:1024], parse_mode="HTML", reply_markup=main_keyboard())
+        await update.message.reply_photo(
+            photo=status_card, 
+            caption=text[:1024], 
+            parse_mode="HTML", 
+            reply_markup=main_keyboard()
+        )
     else:
         await update.message.reply_text(text, parse_mode="HTML", reply_markup=main_keyboard())
 
@@ -959,12 +1091,38 @@ async def check_and_send_predictions(context):
         data = await get_prediction()
         if not data:
             return
+        
+        # CRITICAL FIX: Track by nextIssue (prediction target), NOT currentIssue (latest actual)
+        # currentIssue = the latest completed round (e.g., 20260820123456789)
+        # nextIssue = the round we're predicting (e.g., 20260820123456790)
         current_issue = data.get("currentIssue")
-        if not current_issue or current_issue == last_prediction_issue:
+        next_issue = data.get("nextIssue")
+        
+        if not current_issue or not next_issue:
+            logger.warning("Missing issue numbers in API response: current=%s, next=%s", 
+                          current_issue, next_issue)
             return
-
-        logger.info("New round: %s", current_issue)
-        last_prediction_issue = current_issue
+        
+        # Validate invariant: nextIssue MUST be > currentIssue
+        try:
+            if str(next_issue) <= str(current_issue):
+                logger.error("INVARIANT VIOLATION: nextIssue (%s) <= currentIssue (%s)", 
+                            next_issue, current_issue)
+                # Invalidate stale cache and force refresh
+                last_prediction_issue = None
+                last_prediction = None
+                return
+        except Exception as e:
+            logger.warning("Issue comparison error: %s", e)
+        
+        # Only send if this is a NEW target issue we haven't sent yet
+        if next_issue == last_prediction_issue:
+            # Same target issue - already sent, skip duplicate
+            return
+        
+        logger.info("New prediction round: current=%s → predicting next=%s", 
+                   current_issue, next_issue)
+        last_prediction_issue = next_issue  # Track by TARGET issue, not current actual
 
         previous_result = None
         if last_prediction:
