@@ -120,13 +120,31 @@ def _recovery_hint(loss_streak: int, prediction: str) -> str:
 
 
 async def get_prediction() -> Optional[dict]:
-    """Fetch the latest prediction blob from the FastAPI gateway."""
+    """Fetch the latest prediction blob from the FastAPI gateway.
+    
+    CRITICAL: Handles stale prediction responses from API.
+    Returns None if API reports stale data, forcing regeneration.
+    """
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0)) as client:
             r = await client.get(API_URL)
             if r.status_code != 200:
                 return None
             data = r.json()
+            
+            # Check if API returned stale prediction warning
+            if data and data.get("status") == "stale_prediction":
+                logger.warning(
+                    "API reported STALE prediction: nextIssue=%s, latestActual=%s",
+                    data.get("staleNextIssue"), data.get("latestActualIssue")
+                )
+                return None  # Force regeneration
+            
+            # Check for other error states
+            if data and data.get("error"):
+                logger.warning("API returned error: %s", data.get("error"))
+                return None
+                
             return data if isinstance(data, dict) else None
     except Exception as e:
         logger.warning("Prediction API error: %s", e)

@@ -64,6 +64,13 @@ class GlobalBrain:
             print("EVO_DEBUG: Already initialized")
             return
 
+        # Always initialize legacy components first for backward compatibility
+        self.extraordinary_intelligence = ExtraordinaryIntelligence()
+        self.three_level_algorithm = ThreeLevelWinningAlgorithm()
+        self.drift_detector = DriftDetector(window_size=100, threshold=0.05)
+        self.pattern_extractor = AdvancedPatternExtractor(max_context=500)
+        self.adaptive_tuner = AdaptiveHyperparameterTuner()
+        
         # Try to use the new AdaptiveIntelligenceEngine if available
         if self.use_adaptive_engine:
             try:

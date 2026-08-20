@@ -172,10 +172,12 @@ class EVOSEQBridge:
     # Prediction round
     # ------------------------------------------------------------------
 
-    def run_prediction_round(self, next_issue: Optional[str] = None) -> Dict[str, Any]:
+    def run_prediction_round(self, next_issue: Optional[str] = None, current_issue: Optional[str] = None) -> Dict[str, Any]:
         """
         Run the complete real-time prediction pipeline and persist to DB.
         Returns the final prediction dict for AIBrainState / API consumption.
+        
+        CRITICAL: Includes current_issue to ensure proper issue tracking in stored state.
         """
         db = SessionLocal()
         try:
@@ -206,6 +208,10 @@ class EVOSEQBridge:
                 next_issue_number=str(next_issue) if next_issue else str(seq_no),
                 next_sequence_no=seq_no,
             )
+            
+            # CRITICAL: Store current_issue in prediction for API validation
+            if current_issue:
+                pred["currentIssue"] = str(current_issue)
 
             # Resolve prior unresolved prediction if any
             self._resolve_previous_if_available(db, history)

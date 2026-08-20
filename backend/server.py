@@ -23,7 +23,11 @@ sys.stdout.reconfigure(line_buffering=True)
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.database import SessionLocal, AIBrainState, PredictionAudit, save_live_draws
+from backend.database import SessionLocal, AIBrainState, PredictionAudit, save_live_draws, Draw
+
+# Add logger
+import logging
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # EVOSEQ Adaptive Intelligence Engine v3 — lazy import bridge
@@ -81,6 +85,9 @@ def get_api_state():
     """
     Return the latest prediction from the LOCAL ENGINE stored in database.
     This is a lightweight read operation optimized for free tier.
+    
+    CRITICAL: Validates prediction freshness against latest actual result.
+    Returns STALE status if prediction target issue <= latest actual issue.
     """
     db = SessionLocal()
     try:
@@ -89,16 +96,50 @@ def get_api_state():
             AIBrainState.model_name == "Live_UI_State"
         ).order_by(AIBrainState.id.desc()).first()
         
-        if live_state and live_state.synaptic_weights:
-            try:
-                prediction = json.loads(live_state.synaptic_weights)
-                prediction["source"] = "local_engine"
-                return prediction
-            except Exception as e:
-                print(f"Error parsing prediction: {e}")
-                return {"error": "Invalid prediction data", "status": "no_prediction"}
-        else:
+        if not live_state or not live_state.synaptic_weights:
             return {"error": "No prediction available yet", "status": "waiting_for_local_engine"}
+        
+        try:
+            prediction = json.loads(live_state.synaptic_weights)
+            
+            # Get the latest actual result from Draw table
+            latest_draw = db.query(Draw).order_by(Draw.issue_number.desc()).first()
+            
+            if latest_draw:
+                latest_actual_issue = str(latest_draw.issue_number)
+                prediction_target = prediction.get("nextIssue", "")
+                
+                # CRITICAL VALIDATION: Prediction target MUST be > latest actual issue
+                if prediction_target and latest_actual_issue:
+                    try:
+                        # Compare as strings (works for same-length issue numbers)
+                        if str(prediction_target) <= str(latest_actual_issue):
+                            logger.warning(
+                                "STALE PREDICTION DETECTED: nextIssue=%s <= latest_actual=%s",
+                                prediction_target, latest_actual_issue
+                            )
+                            return {
+                                "error": "Prediction is stale - target issue already completed",
+                                "status": "stale_prediction",
+                                "staleNextIssue": prediction_target,
+                                "latestActualIssue": latest_actual_issue,
+                                "prediction": prediction.get("prediction"),
+                                "confidence": prediction.get("confidence"),
+                            }
+                    except Exception as cmp_err:
+                        logger.warning("Issue comparison failed: %s", cmp_err)
+                
+                # Add current state info to response
+                prediction["currentIssue"] = latest_actual_issue
+                prediction["source"] = "local_engine"
+                prediction["predictionCreatedAt"] = live_state.updated_at.isoformat() if live_state.updated_at else None
+                return prediction
+                
+        except Exception as e:
+            logger.error("Error parsing prediction: %s", e)
+            return {"error": "Invalid prediction data", "status": "no_prediction"}
+        
+        return {"error": "No prediction available", "status": "no_prediction"}
     finally:
         db.close()
 
