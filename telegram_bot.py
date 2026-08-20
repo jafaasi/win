@@ -1115,10 +1115,26 @@ async def check_and_send_predictions(context):
         except Exception as e:
             logger.warning("Issue comparison error: %s", e)
         
-        # Only send if this is a NEW target issue we haven't sent yet
-        if next_issue == last_prediction_issue:
-            # Same target issue - already sent, skip duplicate
-            return
+        # CRITICAL FIX: Check if we've already sent a prediction for this target issue
+        # AND the prediction content hasn't changed (same generation, same confidence)
+        # This allows re-sending if the AI engine regenerated a fresher prediction for the same issue
+        if next_issue == last_prediction_issue and last_prediction:
+            # Same target issue - check if prediction content is truly identical
+            last_gen = last_prediction.get("generation", 0)
+            curr_gen = data.get("generation", 0)
+            last_conf = last_prediction.get("confidence", 0)
+            curr_conf = data.get("confidence", 0)
+            last_created = last_prediction.get("predictionCreatedAt", "")
+            curr_created = data.get("predictionCreatedAt", "")
+            
+            # If generation, confidence, and timestamp are all identical, skip duplicate
+            if last_gen == curr_gen and abs(last_conf - curr_conf) < 0.01 and last_created == curr_created:
+                logger.debug("Duplicate check: same issue %s, identical content - skipping", next_issue)
+                return
+            else:
+                logger.info("Prediction refreshed for issue %s: gen %s→%s, conf %.1f→%.1f%%", 
+                           next_issue, last_gen, curr_gen, last_conf, curr_conf)
+                # Allow sending the refreshed prediction
         
         logger.info("New prediction round: current=%s → predicting next=%s", 
                    current_issue, next_issue)

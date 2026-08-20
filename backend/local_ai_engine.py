@@ -210,6 +210,10 @@ def run_local_engine():
                             )
 
                             # 4. Sync AI state directly to Supabase as Live_UI_State
+                            # Add timestamp for freshness tracking
+                            from datetime import datetime
+                            ai_result["predictionCreatedAt"] = datetime.utcnow().isoformat() + "Z"
+                            
                             save_ai_brain_state(
                                 db=db,
                                 model_name="Live_UI_State",
