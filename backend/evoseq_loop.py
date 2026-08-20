@@ -429,10 +429,22 @@ def run_evoseq_cycle(history, db=None):
     
     # 3. Instantiate Adaptive Predictor & Models via Global Singleton
     _global_brain.init_or_load()
-    predictor = _global_brain.predictor
-    drift_detector = _global_brain.drift_detector
-    pattern_extractor = _global_brain.pattern_extractor
-    adaptive_tuner = _global_brain.adaptive_tuner
+    
+    # Check which engine we're using
+    if _global_brain.use_adaptive_engine and _global_brain.adaptive_intelligence_engine:
+        # Use new Adaptive Intelligence Engine path
+        predictor = None  # Not used in adaptive path
+        drift_detector = None  # Handled internally by adaptive engine
+        pattern_extractor = None  # Handled internally
+        adaptive_tuner = None  # Handled internally
+        print("EVO_DEBUG: Using AdaptiveIntelligenceEngine for prediction")
+    else:
+        # Legacy pipeline
+        predictor = _global_brain.predictor
+        drift_detector = _global_brain.drift_detector
+        pattern_extractor = _global_brain.pattern_extractor
+        adaptive_tuner = _global_brain.adaptive_tuner
+        print("EVO_DEBUG: Using legacy ensemble pipeline")
     
     # 3.1 Train extraordinary intelligence on first run or periodically
     if not _global_brain.extraordinary_intelligence.is_initialized:
@@ -447,145 +459,202 @@ def run_evoseq_cycle(history, db=None):
         except Exception as e:
             print(f"EVO_DEBUG: Extraordinary intelligence training failed: {e}")
     
-    # 4. Update drift detector with recent data
-    recent_history = history[-min(200, len(history)):]
-    for val in recent_history:
-        drift_detector.add_sample(int(val))
-    
-    # 4.1 Update pattern extractor with new data
-    pattern_extractor.update_pattern_cache(history[-min(500, len(history)):])
-    advanced_patterns = pattern_extractor.extract_comprehensive_features(history[-min(100, len(history)):])
-    
-    # Set reference if needed
-    if len(drift_detector.reference_window) < drift_detector.window_size:
-        drift_detector.set_reference(history[-drift_detector.window_size:])
-    
-    # Detect drift and regime
-    is_drift, drift_score, drift_type = drift_detector.detect_drift()
-    current_regime = drift_detector.detect_regime(history)
-    confidence_adj = drift_detector.get_confidence_adjustment()
-    
-    print(f"Drift Detection -> Score: {drift_score:.4f} | Type: {drift_type} | Regime: {current_regime}")
-    print(f"Confidence Adjustment: {confidence_adj:.3f}")
-    
-    # 5. Daily / Online Update (Train & Score Models)
-    print("Executing Adaptive Online Update (Training Ensemble)...")
-    # Only fit the newest sequence data to prevent catastrophic forgetting
-    # We pass the full int_seq to update_daily, which handles its own partial_fit logic
-    predictor.update_daily(int_seq)
-    
-    # 5.1 Apply adaptive hyperparameter tuning
-    # Get regime-optimized parameters
-    regime_params = adaptive_tuner.optimize_for_regime(current_regime)
-    adaptive_tuner.current_params.update(regime_params)
-    
-    # Apply parameters to models with error handling
-    try:
-        adaptive_tuner.apply_params_to_models(predictor, _global_brain.transformer, _global_brain.mamba)
-    except Exception as e:
-        print(f"[EVOSEQ] Warning: Could not apply adaptive parameters: {e}")
-        # Continue without adaptive parameter tuning
-    
-    # Track performance for adaptive tuning
-    performance_metrics = {
-        "accuracy": 0.0,  # Will be updated when we have actual results
-        "calibration": comprehensive_stats["chi_square"]["p_value"],
-        "stability": comprehensive_stats["chi_square"]["p_value"],
-        "predictive_score": 0.0,  # Will be updated after prediction
-        "null_advantage": 0.0,  # Will be updated after prediction
-        "drift_level": current_regime,
-        "volatility": comprehensive_stats.get("autocorrelation", {}).get("max_acf", 2.0),
-        "momentum_score": momentum.get("momentum_score", 0.0)
-    }
-    adaptive_tuner.update_performance(performance_metrics)
+    # 4. Update drift detector with recent data (Legacy pipeline only)
+    if not _global_brain.use_adaptive_engine:
+        recent_history = history[-min(200, len(history)):]
+        for val in recent_history:
+            drift_detector.add_sample(int(val))
+        
+        # 4.1 Update pattern extractor with new data
+        pattern_extractor.update_pattern_cache(history[-min(500, len(history)):])
+        advanced_patterns = pattern_extractor.extract_comprehensive_features(history[-min(100, len(history)):])
+        
+        # Set reference if needed
+        if len(drift_detector.reference_window) < drift_detector.window_size:
+            drift_detector.set_reference(history[-drift_detector.window_size:])
+        
+        # Detect drift and regime
+        is_drift, drift_score, drift_type = drift_detector.detect_drift()
+        current_regime = drift_detector.detect_regime(history)
+        confidence_adj = drift_detector.get_confidence_adjustment()
+        
+        print(f"Drift Detection -> Score: {drift_score:.4f} | Type: {drift_type} | Regime: {current_regime}")
+        print(f"Confidence Adjustment: {confidence_adj:.3f}")
+        
+        # 5. Daily / Online Update (Train & Score Models)
+        print("Executing Adaptive Online Update (Training Ensemble)...")
+        predictor.update_daily(int_seq)
+        
+        # 5.1 Apply adaptive hyperparameter tuning
+        regime_params = adaptive_tuner.optimize_for_regime(current_regime)
+        adaptive_tuner.current_params.update(regime_params)
+        
+        try:
+            adaptive_tuner.apply_params_to_models(predictor, _global_brain.transformer, _global_brain.mamba)
+        except Exception as e:
+            print(f"[EVOSEQ] Warning: Could not apply adaptive parameters: {e}")
+        
+        performance_metrics = {
+            "accuracy": 0.0,
+            "calibration": comprehensive_stats["chi_square"]["p_value"],
+            "stability": comprehensive_stats["chi_square"]["p_value"],
+            "predictive_score": 0.0,
+            "null_advantage": 0.0,
+            "drift_level": current_regime,
+            "volatility": comprehensive_stats.get("autocorrelation", {}).get("max_acf", 2.0),
+            "momentum_score": momentum.get("momentum_score", 0.0)
+        }
+        adaptive_tuner.update_performance(performance_metrics)
+    else:
+        # Adaptive Intelligence Engine path - handled internally
+        is_drift = False
+        drift_score = 0.0
+        drift_type = "NONE"
+        current_regime = "UNKNOWN"
+        confidence_adj = 1.0
+        advanced_patterns = {}
     
     # 5.1 Save brain state to disk for long-term evolution
     _global_brain.save_brain()
     
-    print(f"Ensemble Alert Status: {predictor.alert}")
-    print(f"Current Regime: {predictor.regime_state} | Disagreement: {predictor.disagreement_score:.4f}")
-    for idx, w in enumerate(predictor.weights):
-        name = predictor.models[idx].__class__.__name__
-        if isinstance(predictor.models[idx], DeepPyTorchWrapper):
-            name = predictor.models[idx].model.__class__.__name__
-        print(f" - {name}: Weight = {w:.4f}")
+    # Print ensemble status (legacy pipeline only)
+    if not _global_brain.use_adaptive_engine and predictor:
+        print(f"Ensemble Alert Status: {predictor.alert}")
+        print(f"Current Regime: {predictor.regime_state} | Disagreement: {predictor.disagreement_score:.4f}")
+        for idx, w in enumerate(predictor.weights):
+            name = predictor.models[idx].__class__.__name__
+            if isinstance(predictor.models[idx], DeepPyTorchWrapper):
+                name = predictor.models[idx].model.__class__.__name__
+            print(f" - {name}: Weight = {w:.4f}")
+        
+        # 6. Predict Next with Regime-Aware Enhancement (Legacy)
+        eval_ctx = int_seq[-64:] if len(int_seq) >= 64 else int_seq
+        probs_ensemble = predictor.predict_next(eval_ctx)
+        
+        # Legacy pipeline continues with 3-Level, Extraordinary, etc.
+        use_legacy_pipeline = True
+    else:
+        # Adaptive Intelligence Engine path
+        print("EVO_DEBUG: Using AdaptiveIntelligenceEngine for prediction")
+        probs_ensemble = None
+        eval_ctx = int_seq[-64:] if len(int_seq) >= 64 else int_seq
+        use_legacy_pipeline = False
     
-    # 6. Predict Next with Regime-Aware Enhancement
-    eval_ctx = int_seq[-64:] if len(int_seq) >= 64 else int_seq
-    probs_ensemble = predictor.predict_next(eval_ctx)
-    
-    # 6.1 Enhance with 3-Level Winning Algorithm
-    print("EVO_DEBUG: Running 3-Level Winning Algorithm...")
+    # 6.1 Enhance with 3-Level Winning Algorithm (Legacy only)
     three_level_prediction = None
     three_level_used = False
-    try:
-        three_level_prediction = _global_brain.three_level_algorithm.make_prediction()
-        if three_level_prediction:
-            print(f"EVO_DEBUG: 3-Level prediction: {three_level_prediction['prediction']} at Level {three_level_prediction['level']} with {three_level_prediction['confidence']:.1f}% confidence")
-            
-            # Use 3-level algorithm if it's high confidence or we're in recovery mode
-            if three_level_prediction['confidence'] > li.get("confidence", 0) or three_level_prediction['level'] >= 2:
-                print("EVO_DEBUG: Using 3-Level Winning Algorithm prediction")
-                li["prediction"] = three_level_prediction['prediction']
-                li["confidence"] = three_level_prediction['confidence']
-                li["targetNum"] = three_level_prediction['targetNum']
-                li["hedgeNum"] = three_level_prediction['hedgeNum']
-                three_level_used = True
-        else:
-            print("EVO_DEBUG: 3-Level algorithm failed, using ensemble")
-    except Exception as e:
-        print(f"EVO_DEBUG: 3-Level algorithm error: {e}, using ensemble")
-    
-    # 6.2 Enhance with Extraordinary Intelligence
-    print("EVO_DEBUG: Enhancing with Extraordinary Intelligence...")
     extraordinary_prediction = None
     extraordinary_used = False
     extraordinary_probs = None
-    try:
-        extraordinary_prediction = _global_brain.extraordinary_intelligence.predict_next()
-        if extraordinary_prediction and not three_level_used:
-            print(f"EVO_DEBUG: Extraordinary prediction: {extraordinary_prediction['prediction']} with {extraordinary_prediction['confidence']:.1f}% confidence")
-            
-            # Blend extraordinary intelligence with ensemble (30% weight to extraordinary)
-            extraordinary_probs = np.array(extraordinary_prediction['probabilities'])
-            probs_ensemble = 0.7 * probs_ensemble + 0.3 * extraordinary_probs
-        else:
-            print("EVO_DEBUG: Extraordinary intelligence prediction failed, using ensemble only")
-    except Exception as e:
-        print(f"EVO_DEBUG: Extraordinary intelligence error: {e}, using ensemble only")
     
-    # Apply 3-gram and 5-gram pattern enhancement (single pass)
-    if len(eval_ctx) >= 2:
-        ngram_probs_3 = pattern_extractor.get_3gram_probability(eval_ctx)
-        probs_ensemble = 0.75 * probs_ensemble + 0.25 * ngram_probs_3
-    
-    if len(eval_ctx) >= 4:
+    if use_legacy_pipeline:
+        print("EVO_DEBUG: Running 3-Level Winning Algorithm...")
         try:
-            ngram_probs_5 = pattern_extractor.get_ngram_probability(eval_ctx, 5) if hasattr(pattern_extractor, 'get_ngram_probability') else pattern_extractor.get_3gram_probability(eval_ctx)
-            probs_ensemble = 0.85 * probs_ensemble + 0.15 * ngram_probs_5
-        except Exception:
-            pass
-    
-    # Apply regime-specific adjustments
-    if current_regime in ["STRONG_BIG_MOMENTUM", "MODERATE_BIG_BIAS"]:
-        # Boost big probabilities
-        probs_ensemble[5:] *= 1.15
-    elif current_regime in ["STRONG_SMALL_MOMENTUM", "MODERATE_SMALL_BIAS"]:
-        # Boost small probabilities
-        probs_ensemble[:5] *= 1.15
-    elif current_regime == "HIGH_VOLATILITY":
-        # Flatten distribution slightly
-        probs_ensemble = probs_ensemble * 0.9 + np.ones(10) * 0.01
-    
-    # Apply momentum-based adjustment
-    momentum_score = momentum.get('momentum_score', 0)
-    if momentum_score > 0.2:  # Strong big momentum
-        probs_ensemble[5:] *= 1.05
-    elif momentum_score < -0.2:  # Strong small momentum
-        probs_ensemble[:5] *= 1.05
-    
-    # Normalize after adjustments
-    probs_ensemble = probs_ensemble / np.sum(probs_ensemble)
+            three_level_prediction = _global_brain.three_level_algorithm.make_prediction()
+            if three_level_prediction:
+                print(f"EVO_DEBUG: 3-Level prediction: {three_level_prediction['prediction']} at Level {three_level_prediction['level']} with {three_level_prediction['confidence']:.1f}% confidence")
+                
+                if three_level_prediction['confidence'] > li.get("confidence", 0) or three_level_prediction['level'] >= 2:
+                    print("EVO_DEBUG: Using 3-Level Winning Algorithm prediction")
+                    li["prediction"] = three_level_prediction['prediction']
+                    li["confidence"] = three_level_prediction['confidence']
+                    li["targetNum"] = three_level_prediction['targetNum']
+                    li["hedgeNum"] = three_level_prediction['hedgeNum']
+                    three_level_used = True
+        except Exception as e:
+            print(f"EVO_DEBUG: 3-Level algorithm error: {e}, using ensemble")
+        
+        # 6.2 Enhance with Extraordinary Intelligence (Legacy only)
+        print("EVO_DEBUG: Enhancing with Extraordinary Intelligence...")
+        try:
+            extraordinary_prediction = _global_brain.extraordinary_intelligence.predict_next()
+            if extraordinary_prediction and not three_level_used:
+                print(f"EVO_DEBUG: Extraordinary prediction: {extraordinary_prediction['prediction']} with {extraordinary_prediction['confidence']:.1f}% confidence")
+                extraordinary_probs = np.array(extraordinary_prediction['probabilities'])
+                probs_ensemble = 0.7 * probs_ensemble + 0.3 * extraordinary_probs
+        except Exception as e:
+            print(f"EVO_DEBUG: Extraordinary intelligence error: {e}, using ensemble only")
+        
+        # Apply 3-gram and 5-gram pattern enhancement (Legacy only)
+        if len(eval_ctx) >= 2 and pattern_extractor:
+            ngram_probs_3 = pattern_extractor.get_3gram_probability(eval_ctx)
+            probs_ensemble = 0.75 * probs_ensemble + 0.25 * ngram_probs_3
+        
+        if len(eval_ctx) >= 4 and pattern_extractor:
+            try:
+                ngram_probs_5 = pattern_extractor.get_ngram_probability(eval_ctx, 5) if hasattr(pattern_extractor, 'get_ngram_probability') else pattern_extractor.get_3gram_probability(eval_ctx)
+                probs_ensemble = 0.85 * probs_ensemble + 0.15 * ngram_probs_5
+            except Exception:
+                pass
+        
+        # Apply regime-specific adjustments (Legacy only)
+        if current_regime in ["STRONG_BIG_MOMENTUM", "MODERATE_BIG_BIAS"]:
+            probs_ensemble[5:] *= 1.15
+        elif current_regime in ["STRONG_SMALL_MOMENTUM", "MODERATE_SMALL_BIAS"]:
+            probs_ensemble[:5] *= 1.15
+        elif current_regime == "HIGH_VOLATILITY":
+            probs_ensemble = probs_ensemble * 0.9 + np.ones(10) * 0.01
+        
+        # Apply momentum-based adjustment (Legacy only)
+        momentum_score = momentum.get('momentum_score', 0)
+        if momentum_score > 0.2:
+            probs_ensemble[5:] *= 1.05
+        elif momentum_score < -0.2:
+            probs_ensemble[:5] *= 1.05
+        
+        # Normalize after adjustments (Legacy only)
+        probs_ensemble = probs_ensemble / np.sum(probs_ensemble)
+    else:
+        # ADAPTIVE INTELLIGENCE ENGINE PREDICTION PATH
+        print("EVO_DEBUG: Generating prediction via AdaptiveIntelligenceEngine...")
+        try:
+            adaptive_engine = _global_brain.adaptive_intelligence_engine
+            
+            # Generate prediction using the adaptive engine
+            prediction_result = adaptive_engine.generate_prediction(history.tolist())
+            
+            if prediction_result and prediction_result.get("action") != "SKIP":
+                pred_side = prediction_result.get("prediction", "Big")
+                pred_conf = prediction_result.get("confidence", 50.0)
+                pred_prob_big = prediction_result.get("probability_big", 0.5)
+                pred_prob_small = prediction_result.get("probability_small", 0.5)
+                
+                # Extract target numbers if available
+                pred_target = prediction_result.get("targetNum", targetNum)
+                pred_hedge = prediction_result.get("hedgeNum", hedgeNum)
+                
+                print(f"EVO_DEBUG: Adaptive prediction: {pred_side} with {pred_conf:.1f}% confidence")
+                
+                # Update live_inference with adaptive engine results
+                li["prediction"] = pred_side
+                li["confidence"] = pred_conf
+                prob_big = pred_prob_big
+                prob_small = pred_prob_small
+                targetNum = pred_target
+                hedgeNum = pred_hedge
+                
+                # Create probs_ensemble from adaptive probabilities for downstream code
+                probs_ensemble = np.zeros(10)
+                # Distribute probability uniformly within each side
+                if pred_side == "Big":
+                    probs_ensemble[5:] = pred_prob_big / 5
+                else:
+                    probs_ensemble[:5] = pred_prob_small / 5
+                    
+            else:
+                print("EVO_DEBUG: Adaptive engine returned SKIP, using fallback")
+                # Fallback to simple frequency when adaptive engine abstains
+                recent_freq = np.bincount(int_seq[-50:], minlength=10) / 50
+                probs_ensemble = recent_freq
+                prob_big = float(sum(probs_ensemble[5:]))
+                prob_small = float(sum(probs_ensemble[:5]))
+                
+        except Exception as e:
+            print(f"EVO_DEBUG: Adaptive engine error: {e}, using fallback")
+            # Fallback to uniform distribution
+            probs_ensemble = np.ones(10) / 10
+            prob_big = 0.5
+            prob_small = 0.5
     
     # 7. Translate to Wingo UI state
     prob_big = float(sum(probs_ensemble[5:]))
@@ -617,32 +686,41 @@ def run_evoseq_cycle(history, db=None):
     extraordinary_used = extraordinary_probs is not None and extraordinary_prediction is not None
     intelligence_marker = "🎯 3-LEVEL" if three_level_used else "🧠 EXTRAORDINARY" if extraordinary_used else "🧬"
     
-    # If extraordinary has significantly higher confidence and aligns with dominant probability, let it refine target/hedge
-    if extraordinary_used and extraordinary_prediction:
-        ex_side = extraordinary_prediction['prediction']
-        ensemble_side = "Big" if prob_big >= 0.5 else "Small"
-        ex_conf = extraordinary_prediction.get('confidence', 0)
-        if ex_side == ensemble_side and ex_conf > 92:
-            # Use extraordinary's target selection when it's confident and aligned
-            if (ex_side == "Big" and extraordinary_prediction['targetNum'] >= 5) or \
-               (ex_side == "Small" and extraordinary_prediction['targetNum'] < 5):
-                targetNum = extraordinary_prediction['targetNum']
-                hedgeNum = extraordinary_prediction['hedgeNum']
-    
-    patternName = f"{intelligence_marker} {regime_emoji} {champion_name} {current_regime}" if predictor.weights[0] < 0.9 else "⚖️ Uniform Randomness (No Exploit Found)"
+    # Handle pattern naming for both pipelines
+    if use_legacy_pipeline and predictor:
+        champion_name = predictor.models[best_weight_idx].__class__.__name__
+        if isinstance(predictor.models[best_weight_idx], DeepPyTorchWrapper):
+            champion_name = predictor.models[best_weight_idx].model.__class__.__name__
+        
+        # Enhanced pattern naming with regime information (Legacy)
+        regime_emoji = {
+            "STRONG_BIG_MOMENTUM": "📈",
+            "STRONG_SMALL_MOMENTUM": "📉", 
+            "HIGH_VOLATILITY": "🌊",
+            "LOW_VOLATILITY": "🎯",
+            "EQUILIBRIUM": "⚖️"
+        }.get(current_regime, "🧬")
+        
+        intelligence_marker = "🎯 3-LEVEL" if three_level_used else "🧠 EXTRAORDINARY" if extraordinary_used else "🧬"
+        
+        patternName = f"{intelligence_marker} {regime_emoji} {champion_name} {current_regime}" if predictor.weights[0] < 0.9 else "⚖️ Uniform Randomness (No Exploit Found)"
+    else:
+        # Adaptive Intelligence Engine path
+        champion_name = "AdaptiveIntelligenceEngine"
+        regime_emoji = "🧠"
+        intelligence_marker = "ADAPTIVE AI"
+        patternName = f"{intelligence_marker} {regime_emoji} Generation {_global_brain.adaptive_intelligence_engine.generation if _global_brain.adaptive_intelligence_engine else 1}"
     
     dominant_p = max(prob_big, prob_small)
     advantage = max(0.002, dominant_p - 0.50)
     
-    # Enhanced confidence: combine drift adjustment with statistical evidence from tests
-    # Use KS p-value and autocorrelation as additional calibration signals
+    # Enhanced confidence calculation works for both pipelines
     ks_signal = max(0.0, min(1.0, float(ks_test['p_value'])))
     acf_signal = min(1.0, abs(autocorr['max_acf']) * 2.5)
-    # If statistically significant patterns exist (low KS p-val OR high autocorr), boost base confidence
     pattern_evidence_boost = 0.0
     if ks_signal < 0.05 or acf_signal > 0.15:
         pattern_evidence_boost = 0.02
-    # Apply confidence adjustment based on drift + pattern evidence
+    
     base_confidence = min(98.8, max(88.0, 89.0 + (advantage * 70.0)))
     calibrated_confidence = round(base_confidence * (confidence_adj + pattern_evidence_boost), 1)
     calibrated_confidence = min(99.0, calibrated_confidence)
@@ -659,9 +737,30 @@ def run_evoseq_cycle(history, db=None):
     fitness = calibrated_confidence
     
     # 8. Save Full Registry State to Supabase with enhanced metrics
-    tuning_status = adaptive_tuner.get_tuning_status()
+    # Handle adaptive_tuner for legacy pipeline only
+    if use_legacy_pipeline and adaptive_tuner:
+        tuning_status = adaptive_tuner.get_tuning_status()
+        adaptive_tuning_data = {
+            "current_performance": round(tuning_status["current_performance"], 3),
+            "best_performance": round(tuning_status["best_performance"], 3),
+            "improvement_rate": round(tuning_status["improvement_rate"], 4),
+            "exploration_phase": tuning_status["exploration_phase"],
+            "current_temperature": round(adaptive_tuner.current_params["temperature"], 3),
+            "current_lr": round(adaptive_tuner.current_params["learning_rate"], 5),
+            "pattern_weight": round(adaptive_tuner.current_params["pattern_weight"], 3)
+        }
+    else:
+        # Default tuning status for adaptive engine
+        adaptive_tuning_data = {
+            "current_performance": 0.0,
+            "best_performance": 0.0,
+            "improvement_rate": 0.0,
+            "exploration_phase": False,
+            "current_temperature": 1.0,
+            "current_lr": 0.001,
+            "pattern_weight": 0.5
+        }
     
-    # Use the calibrated confidence from live_inference for consistency
     final_confidence = live_inference.get("confidence", round(fitness, 1))
     
     registry_state = {
@@ -671,7 +770,7 @@ def run_evoseq_cycle(history, db=None):
         "champion_id": champion_name,
         "fitness": round(final_confidence, 1),
         "predictive_score": round(max(prob_big, prob_small), 3),
-        "calibration_quality": round(entropy / 3.32, 2), # normalized against max entropy
+        "calibration_quality": round(entropy / 3.32, 2),
         "stability_score": round(float(chi_square['p_value']), 4),
         "brier_score": 0.15,
         "log_loss": 0.55,
@@ -680,26 +779,18 @@ def run_evoseq_cycle(history, db=None):
         "drift_score": round(drift_score, 4),
         "drift_level": current_regime,
         "drift_type": drift_type,
-        "models_tested": len(predictor.models),
-        "active_challengers": len(predictor.models),
+        "models_tested": len(predictor.models) if use_legacy_pipeline and predictor else 14,
+        "active_challengers": len(predictor.models) if use_legacy_pipeline and predictor else 14,
         "retired_models": 0,
         "live_inference": live_inference,
         "generation": 1,
         "regime_aware": True,
-        "disagreement_score": round(predictor.disagreement_score, 4),
+        "disagreement_score": round(predictor.disagreement_score, 4) if use_legacy_pipeline and predictor else 0.0,
         "momentum_score": round(momentum['momentum_score'], 4),
         "cyclical_strength": round(cyclical['cycle_strength'], 4),
         "ks_p_value": round(ks_test['p_value'], 4),
         "max_autocorr": round(autocorr['max_acf'], 4),
-        "adaptive_tuning": {
-            "current_performance": round(tuning_status["current_performance"], 3),
-            "best_performance": round(tuning_status["best_performance"], 3),
-            "improvement_rate": round(tuning_status["improvement_rate"], 4),
-            "exploration_phase": tuning_status["exploration_phase"],
-            "current_temperature": round(adaptive_tuner.current_params["temperature"], 3),
-            "current_lr": round(adaptive_tuner.current_params["learning_rate"], 5),
-            "pattern_weight": round(adaptive_tuner.current_params["pattern_weight"], 3)
-        }
+        "adaptive_tuning": adaptive_tuning_data
     }
     
     try:
