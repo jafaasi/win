@@ -49,11 +49,19 @@ db.close()
     echo "✅ Database schema and tables verified!"
 fi
 
-echo "🔄 Restarting WinGo systemd services..."
+echo "🧹 Terminating stray orphan processes..."
+sudo systemctl stop win-scraper win-ai win-api win-telegram 2>/dev/null || true
+sudo fuser -k 8000/tcp 2>/dev/null || true
+sudo fuser -k 8080/tcp 2>/dev/null || true
+sudo pkill -9 -f "python.*telegram_bot" 2>/dev/null || true
+sudo pkill -9 -f "uvicorn.*server" 2>/dev/null || true
+sleep 1
+
+echo "🔄 Restarting WinGo systemd services cleanly..."
 if command -v systemctl >/dev/null; then
     sudo systemctl restart win-scraper win-ai win-api win-telegram || echo "⚠️ Could not restart all services."
     echo "✅ Services restarted."
-    sleep 2
+    sleep 3
     echo "🔍 Testing API Gateway response:"
     curl -s http://127.0.0.1:8000/api/state || true
     echo ""
