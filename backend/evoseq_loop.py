@@ -668,10 +668,14 @@ def run_evoseq_cycle(history, db=None):
     sorted_indices = probs_ensemble.argsort()[::-1]
     hedgeNum = int(sorted_indices[1]) if len(sorted_indices) > 1 else 0
     
-    best_weight_idx = np.argmax(predictor.weights)
-    champion_name = predictor.models[best_weight_idx].__class__.__name__
-    if isinstance(predictor.models[best_weight_idx], DeepPyTorchWrapper):
-        champion_name = predictor.models[best_weight_idx].model.__class__.__name__
+    if predictor is not None and hasattr(predictor, "weights"):
+        best_weight_idx = np.argmax(predictor.weights)
+        champion_name = predictor.models[best_weight_idx].__class__.__name__
+        if isinstance(predictor.models[best_weight_idx], DeepPyTorchWrapper):
+            champion_name = predictor.models[best_weight_idx].model.__class__.__name__
+    else:
+        best_weight_idx = 0
+        champion_name = "AdaptiveIntelligenceEngine"
         
     # Enhanced pattern naming with regime information
     regime_emoji = {
