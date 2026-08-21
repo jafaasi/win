@@ -267,6 +267,15 @@ def run_adaptive_engine_cycle(history, db=None):
     print(f"[AdaptiveEngine] Edge status: {prediction_result['edgeStatus']}")
     print(f"[AdaptiveEngine] Action: {prediction_result['action']}")
     
+    live_inference = {
+        "prediction": prediction_result["prediction"],
+        "probability_big": prediction_result["probability_big"],
+        "probability_small": prediction_result["probability_small"],
+        "confidence": prediction_result["confidence"],
+        "targetNum": prediction_result["targetNum"],
+        "hedgeNum": prediction_result["hedgeNum"]
+    }
+
     # Convert to the expected output format for backward compatibility
     result = {
         "prediction": prediction_result["prediction"],
@@ -285,12 +294,17 @@ def run_adaptive_engine_cycle(history, db=None):
         "totalSamplesTrained": prediction_result["totalSamplesTrained"],
         "ensembleWeights": prediction_result["ensembleWeights"],
         "modelPBigVector": prediction_result["modelPBigVector"],
+        "live_inference": live_inference,
+        "champion_id": "Ultra-Adaptive-Engine",
+        "fitness": prediction_result["confidence"],
+        "drift_level": prediction_result.get("driftLevel", "STABLE"),
+        "entropy": prediction_result.get("entropy", 3.2),
+        "disagreement_score": 0.0,
         # New adaptive intelligence fields
         "generation": prediction_result["generation"],
         "stateFingerprint": prediction_result["stateFingerprint"],
         "stateSimilarity": prediction_result["stateSimilarity"],
         "stateSampleSize": prediction_result["stateSampleSize"],
-        "entropy": prediction_result["entropy"],
         "regime": prediction_result["regime"],
         "adversarialScore": prediction_result["adversarialScore"],
         "contradictionScore": prediction_result["contradictionScore"],

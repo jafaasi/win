@@ -773,10 +773,15 @@ class UltraIntelligenceEngine:
         Returns a dict compatible with the existing Telegram bot format, or None
         if insufficient data.
         """
-        if not registry_state or not registry_state.get("live_inference"):
+        if not registry_state:
             return None
 
-        li = registry_state["live_inference"]
+        li = registry_state.get("live_inference") or registry_state
+        if not isinstance(li, dict):
+            return None
+        if "probability_big" not in li and "prediction" not in li:
+            return None
+
         int_history = [int(x) for x in history]
         if len(int_history) < 10:
             return None
