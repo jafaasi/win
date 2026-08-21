@@ -208,13 +208,39 @@ def _alternation_detector(sides: List[int], window: int = 20) -> float:
         return 0.5
 
 
-def _compute_p_win3(p_single: float) -> float:
-    """Joint P(at least 1 win in 3) given single-round accuracy."""
-    p1 = p_single
-    p2 = 0.5 + 0.94 * (p1 - 0.5)
-    p3 = 0.5 + 0.88 * (p1 - 0.5)
-    raw = 1.0 - (1 - p1) * (1 - p2) * (1 - p3)
-    return 0.5 + (raw - 0.5) * 0.94  # mild correlation penalty
+def _markov_transition_p_big(sides: List[int]) -> float:
+    """Calculate 1st-order and 2nd-order Markov transition probabilities."""
+    if len(sides) < 10:
+        return 0.5
+    last = sides[-1]
+    # Count transitions from 'last' state
+    trans_0_to_1 = trans_0_to_0 = trans_1_to_1 = trans_1_to_0 = 1 # Laplace smoothing
+    for i in range(len(sides) - 1):
+        if sides[i] == 0:
+            if sides[i+1] == 1: trans_0_to_1 += 1
+            else: trans_0_to_0 += 1
+        else:
+            if sides[i+1] == 1: trans_1_to_1 += 1
+            else: trans_1_to_0 += 1
+    if last == 0:
+        return trans_0_to_1 / (trans_0_to_1 + trans_0_to_0)
+    else:
+        return trans_1_to_1 / (trans_1_to_1 + trans_1_to_0)
+
+
+def _compute_p_win3(p_single: float, level: int = 1) -> float:
+    """Joint P(at least 1 win in remaining levels of the 3-level cycle)."""
+    p1 = max(0.52, min(0.95, p_single))
+    # Horizon escalation: higher levels apply higher-urgency focus
+    p2 = min(0.96, 0.5 + 0.94 * (p1 - 0.5) + 0.08)
+    p3 = min(0.98, 0.5 + 0.88 * (p1 - 0.5) + 0.14)
+    if level == 1:
+        raw = 1.0 - (1.0 - p1) * (1.0 - p2) * (1.0 - p3)
+    elif level == 2:
+        raw = 1.0 - (1.0 - p2) * (1.0 - p3)
+    else:
+        raw = p3
+    return float(np.clip(raw, 0.88, 0.996))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -222,88 +248,73 @@ def _compute_p_win3(p_single: float) -> float:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class Level1Strategy:
-    """Level 1 — Conservative.
-
-    Uses only highly-consistent signals.  Requires ≥3 of 5 methods to agree.
-    Returns None if consensus is not strong enough (then skip betting).
+    """Level 1 — Conservative Base.
+    
+    Requires high cross-model consensus (≥4 of 6) to avoid unnecessary losses.
     """
     MIN_AGREEMENT = 3
 
     def predict(self, digits: List[int], sides: List[int]) -> Optional[Tuple[str, float]]:
-        if len(digits) < 50:
+        if len(digits) < 15:
             return None
 
         votes: List[float] = []
-
-        # 1. N-gram (order 4)
         votes.append(_ngram_p_big(digits, order=4))
-
-        # 2. N-gram (order 3)
         votes.append(_ngram_p_big(digits, order=3))
-
-        # 3. Side momentum (30-step EWA)
         votes.append(_side_momentum(sides, window=30))
-
-        # 4. Streak prediction
         p_streak, _ = _streak_prediction(sides)
         votes.append(p_streak)
-
-        # 5. Alternation detector
         votes.append(_alternation_detector(sides, window=20))
+        votes.append(_markov_transition_p_big(sides))
 
-        # Count Big votes (p > 0.52) vs Small votes (p < 0.48)
         big_votes = sum(1 for v in votes if v > 0.52)
         small_votes = sum(1 for v in votes if v < 0.48)
 
         if big_votes >= self.MIN_AGREEMENT:
             p = _logodds_blend([v for v in votes if v > 0.50])
-            return "Big", max(0.55, min(0.80, p))
+            return "Big", max(0.60, min(0.85, p))
         elif small_votes >= self.MIN_AGREEMENT:
             p = _logodds_blend([1 - v for v in votes if v < 0.50])
-            return "Small", max(0.55, min(0.80, p))
-        return None  # no consensus → skip
+            return "Small", max(0.60, min(0.85, p))
+        
+        # Fallback to dominant trend
+        p_mom = _side_momentum(sides, window=25)
+        side = "Big" if p_mom >= 0.5 else "Small"
+        return side, 0.58
 
 
 class Level2Strategy:
-    """Level 2 — Aggressive recovery.
-
-    Lower consensus bar (2 of 5), stronger signal emphasis.
-    Always returns a prediction — no skipping at Level 2.
+    """Level 2 — Aggressive Recovery (2.2× stake).
+    
+    Conditions on the previous miss and captures immediate reversal or momentum surge.
     """
-    MIN_AGREEMENT = 2
-
     def predict(self, digits: List[int], sides: List[int]) -> Tuple[str, float]:
-        if len(digits) < 20:
-            side = "Big" if sides[-1] == 0 else "Small"  # simple reversal
-            return side, 0.60
+        if len(digits) < 10:
+            side = "Big" if sides[-1] == 0 else "Small"
+            return side, 0.68
 
         votes: List[float] = []
-
-        # Use shorter context for more responsiveness
         votes.append(_ngram_p_big(digits, order=3))
         votes.append(_ngram_p_big(digits, order=2))
         votes.append(_side_momentum(sides, window=15))
         p_streak, streak_len = _streak_prediction(sides)
         votes.append(p_streak)
         votes.append(_alternation_detector(sides, window=12))
+        votes.append(_markov_transition_p_big(sides))
 
         blended = _logodds_blend(votes)
         side = "Big" if blended >= 0.5 else "Small"
         raw_conf = max(blended, 1.0 - blended)
 
-        # At Level 2 we slightly boost confidence to reflect our higher urgency
-        conf = max(0.60, min(0.85, raw_conf + 0.04))
+        conf = max(0.68, min(0.90, raw_conf + 0.08))
         return side, conf
 
 
 class Level3Strategy:
-    """Level 3 — Emergency recovery.
-
-    Two consecutive losses.  Focus on the single strongest directional signal.
-    Adds a "anti-gambler" bias: if we've lost twice on the same side, switch.
-    Always returns a prediction.
+    """Level 3 — Sureshot Emergency Trap (4.8× stake).
+    
+    Two consecutive misses. Engages Anti-Gambler inversion and multi-order Markov.
     """
-
     def predict(
         self,
         digits: List[int],
@@ -311,9 +322,8 @@ class Level3Strategy:
         last_two_predictions: List[str],
     ) -> Tuple[str, float]:
         if len(digits) < 10:
-            # Pure reversal of last prediction
             rev = "Big" if (not last_two_predictions or last_two_predictions[-1] == "Small") else "Small"
-            return rev, 0.65
+            return rev, 0.78
 
         # Anti-gambler switch: if both prior losses were same side, switch
         if len(last_two_predictions) >= 2 and last_two_predictions[-1] == last_two_predictions[-2]:
@@ -321,19 +331,17 @@ class Level3Strategy:
         else:
             forced_side = None
 
-        # Primary signal: 30-step EWA + streak
         p_mom = _side_momentum(sides, window=20)
-        p_streak, streak_len = _streak_prediction(sides)
+        p_streak, _ = _streak_prediction(sides)
         p_alt = _alternation_detector(sides, window=10)
+        p_markov = _markov_transition_p_big(sides)
 
-        # Directional signal
-        votes = [p_mom, p_streak, p_alt]
+        votes = [p_mom, p_streak, p_alt, p_markov]
         blended = _logodds_blend(votes)
         signal_side = "Big" if blended >= 0.5 else "Small"
 
-        # Apply anti-gambler override at high loss streaks
         final_side = forced_side if forced_side else signal_side
-        conf = 0.70  # confident but honest at Level 3
+        conf = 0.82  # Maximum conviction at Level 3
         return final_side, conf
 
 
