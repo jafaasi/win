@@ -917,6 +917,15 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_keyboard()
         )
         return
+        
+    if prediction_data.get("status") == "offline":
+        err = prediction_data.get("error", "Unknown database error")
+        await update.message.reply_text(
+            f"🛑 <b>Database Offline</b>\n\n<code>{err}</code>",
+            parse_mode="HTML",
+            reply_markup=main_keyboard()
+        )
+        return
     
     # CRITICAL: Validate prediction freshness before displaying
     current_issue = prediction_data.get("currentIssue")
