@@ -1,13 +1,10 @@
 import os
-
-if not os.environ.get("DATABASE_URL"):
-    raise RuntimeError("DATABASE_URL is required to run this database check.")
-
-from backend.database import SessionLocal, Draw, PredictionLog
-
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from backend.database import SessionLocal, AIBrainState
 db = SessionLocal()
-draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(10).all()
-print(f"Fetched {len(draws)} draws from Supabase.")
-for d in draws:
-    print(f"Issue {d.issue_number}: {d.number}")
-db.close()
+try:
+    db.query(AIBrainState).first()
+    print("Query OK")
+except Exception as e:
+    print("Error:", e)
