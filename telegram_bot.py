@@ -51,9 +51,28 @@ CHECK_INTERVAL = 3.0
 NOTIFICATION_COOLDOWN = 15
 MAX_NOTIFICATIONS_PER_HOUR = 20
 
-# ── In-memory state ───────────────────────────────────────────────────────────
+# ── Persistent state ─────────────────────────────────────────────────────────
+SUBSCRIBERS_FILE = os.path.join(project_dir, "subscribers.json")
+
+def load_subscribers() -> Set[int]:
+    try:
+        if os.path.exists(SUBSCRIBERS_FILE):
+            with open(SUBSCRIBERS_FILE, "r") as f:
+                data = json.load(f)
+                return set(data.get("subscribers", []))
+    except Exception as e:
+        logger.warning(f"Error loading subscribers: {e}")
+    return set()
+
+def save_subscribers(subs: Set[int]):
+    try:
+        with open(SUBSCRIBERS_FILE, "w") as f:
+            json.dump({"subscribers": list(subs)}, f)
+    except Exception as e:
+        logger.warning(f"Error saving subscribers: {e}")
+
 user_filters: Dict[int, str] = {}       # user_id -> "all" | "high" | "strike"
-subscribed_users: Set[int] = set()
+subscribed_users: Set[int] = load_subscribers()
 last_prediction_issue = None
 last_prediction = None
 last_notification_time: Dict[int, float] = {}
@@ -866,6 +885,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     user_id = update.effective_chat.id
     subscribed_users.add(user_id)
+    save_subscribers(subscribed_users)
     user_filters.setdefault(user_id, "all")
     
     # Fetch fresh prediction data with validation
@@ -1082,11 +1102,13 @@ async def filter_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subscribed_users.add(update.effective_chat.id)
+    save_subscribers(subscribed_users)
     await update.message.reply_text("🔔 <b>Auto-stream enabled!</b>", parse_mode="HTML", reply_markup=main_keyboard())
 
 
 async def unsubscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subscribed_users.discard(update.effective_chat.id)
+    save_subscribers(subscribed_users)
     await update.message.reply_text("🔕 <b>Auto-stream paused.</b>", parse_mode="HTML", reply_markup=main_keyboard())
 
 
@@ -1194,9 +1216,11 @@ async def dashboard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif d == "toggle_sub":
         if user_id in subscribed_users:
             subscribed_users.discard(user_id)
+            save_subscribers(subscribed_users)
             await edit("🔕 <b>Auto-stream paused.</b>", back_keyboard())
         else:
             subscribed_users.add(user_id)
+            save_subscribers(subscribed_users)
             await edit("🔔 <b>Auto-stream enabled!</b>", back_keyboard())
 
 
@@ -1254,45 +1278,8 @@ async def check_and_send_predictions(context):
         except Exception as e:
             logger.warning("Issue comparison error: %s", e)
         
-        # HIGH-CONFIDENCE FILTER: Only send predictions with confidence >= 65%
-        confidence = float(data.get("confidence", 0))
-        action = str(data.get("action", ""))
-        status = str(data.get("status", ""))
-        
-        # Must be SYNCED status
-        if status != "SYNCED":
-            logger.debug(f"Skipping prediction - System not synced (status={status})")
-            return
-        
-        # Confidence threshold: minimum 65%
-        if confidence < 65.0:
-            logger.debug(f"🔒 LOW CONFIDENCE FILTERED: {confidence:.1f}% < 65%")
-            return
-        
-        # Only ACTIVE or STRONG_ACTIVE actions (not CAUTION, SKIP, WAIT)
-        if action not in ["ACTIVE", "STRONG_ACTIVE"]:
-            logger.debug(f"🔒 PASSIVE ACTION FILTERED: action={action}")
-            return
-        
-        # Probability check: max probability must be > 0.65
-        prob_big = float(data.get("probability_big", 0.5))
-        prob_small = float(data.get("probability_small", 0.5))
-        max_prob = max(prob_big, prob_small)
-        if max_prob < 0.65:
-            logger.debug(f"🔒 WEAK PROBABILITY FILTERED: max_prob={max_prob:.3f}")
-            return
-        
-        # Sample size must be sufficient (>30 rounds)
-        sample_size = int(data.get("sampleSize", 0))
-        if sample_size < 30:
-            logger.debug(f"🔒 INSUFFICIENT DATA: sample_size={sample_size} < 30")
-            return
-        
-        # CRITICAL FIX: Check if we've already sent a prediction for this target issue
-        # AND the prediction content hasn't changed (same generation, same confidence)
-        # This allows re-sending if the AI engine regenerated a fresher prediction for the same issue
+        # Skip exact duplicate predictions for the same round
         if next_issue == last_prediction_issue and last_prediction:
-            # Same target issue - check if prediction content is truly identical
             last_gen = last_prediction.get("generation", 0)
             curr_gen = data.get("generation", 0)
             last_conf = last_prediction.get("confidence", 0)
@@ -1300,28 +1287,31 @@ async def check_and_send_predictions(context):
             last_created = last_prediction.get("predictionCreatedAt", "")
             curr_created = data.get("predictionCreatedAt", "")
             
-            # If generation, confidence, and timestamp are all identical, skip duplicate
             if last_gen == curr_gen and abs(last_conf - curr_conf) < 0.01 and last_created == curr_created:
-                logger.debug("Duplicate check: same issue %s, identical content - skipping", next_issue)
                 return
-            else:
-                logger.info("Prediction refreshed for issue %s: gen %s→%s, conf %.1f→%.1f%%", 
-                           next_issue, last_gen, curr_gen, last_conf, curr_conf)
-                # Allow sending the refreshed prediction
         
-        logger.info("✅ HIGH-CONFIDENCE PREDICTION: current=%s → predicting next=%s | %.1f%% | %s", 
-                   current_issue, next_issue, confidence, action)
-        last_prediction_issue = next_issue  # Track by TARGET issue, not current actual
+        confidence = float(data.get("confidence", 0))
+        action = str(data.get("action", "FORECAST"))
+        logger.info("📡 BROADCASTING PREDICTION: issue=%s | conf=%.1f%% | action=%s", 
+                    next_issue, confidence, action)
+        last_prediction_issue = next_issue  # Track by TARGET issue
 
         previous_result = None
         if last_prediction:
             previous_result = await check_win_loss(last_prediction)
             if previous_result:
-                logger.info("Previous %s: issue #%s", "WON" if previous_result["won"] else "LOST", previous_result["issue"])
+                logger.info("Previous round #%s resolved: %s", 
+                            previous_result.get("issue"), "WON" if previous_result["won"] else "LOST")
 
-        # TEXT-ONLY MESSAGE (NO IMAGE CARD)
-        msg_text = format_high_confidence_message(data, previous_result)
-        loop_time   = asyncio.get_event_loop().time()
+        card_bytes = None
+        try:
+            card_bytes = render_forecast_card(data, previous_result)
+        except Exception as e:
+            logger.warning("Card render note: %s", e)
+
+        msg_text = format_prediction_message(data, previous_result)
+        caption_txt = format_forecast_caption(data, previous_result)
+        loop_time = asyncio.get_event_loop().time()
 
         for user_id in list(subscribed_users):
             if not should_send_to_user(user_id, data):
@@ -1330,17 +1320,27 @@ async def check_and_send_predictions(context):
             if loop_time - last_t < NOTIFICATION_COOLDOWN and previous_result is None:
                 continue
             try:
-                # ALWAYS send TEXT ONLY - no image cards
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=msg_text,
-                    parse_mode="HTML",
-                    reply_markup=main_keyboard(),
-                )
+                if card_bytes:
+                    card_bytes.seek(0)
+                    await context.bot.send_photo(
+                        chat_id=user_id,
+                        photo=card_bytes,
+                        caption=caption_txt,
+                        parse_mode="HTML",
+                        reply_markup=main_keyboard(),
+                    )
+                else:
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=msg_text,
+                        parse_mode="HTML",
+                        reply_markup=main_keyboard(),
+                    )
                 last_notification_time[user_id] = loop_time
             except Exception as e:
                 logger.warning("Send to %s failed: %s", user_id, e)
                 subscribed_users.discard(user_id)
+                save_subscribers(subscribed_users)
 
         last_prediction = data
 
