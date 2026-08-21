@@ -37,12 +37,7 @@ except ImportError:
     pass
 
 from backend.database import SessionLocal, AIBrainState, PredictionAudit, Draw
-from backend.telegram_card import (
-    render_forecast_card,
-    render_metrics_card,
-    render_status_card,
-    render_martingale_card,
-)
+
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -462,19 +457,7 @@ def format_forecast_caption(data: dict, previous_result=None) -> str:
 
 
 async def reply_with_forecast(message, data: Optional[dict], previous_result=None):
-    """Deliver visual card first, fall back to text."""
-    if data:
-        try:
-            card = render_forecast_card(data, previous_result)
-            if card:
-                return await message.reply_photo(
-                    photo=card,
-                    caption=format_forecast_caption(data, previous_result),
-                    parse_mode="HTML",
-                    reply_markup=main_keyboard(),
-                )
-        except Exception as e:
-            logger.warning("Card render failed: %s", e)
+    """Deliver text forecast cleanly without image cards."""
     return await message.reply_text(
         format_prediction_message(data, previous_result),
         parse_mode="HTML",
@@ -1004,13 +987,8 @@ async def level_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def martingale_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = await get_prediction()
-    p_single = float(data.get("calibratedPSingle", 0.58)) if data else 0.58
-    card = render_martingale_card(p_single)
     text = format_martingale_message(data)
-    if card:
-        await update.message.reply_photo(photo=card, caption=text[:1024], parse_mode="HTML", reply_markup=main_keyboard())
-    else:
-        await update.message.reply_text(text, parse_mode="HTML", reply_markup=main_keyboard())
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=main_keyboard())
 
 
 async def learn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1044,12 +1022,8 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     metrics = get_metrics_from_db()
     if not metrics:
         metrics = await get_prediction()
-    card = render_metrics_card(metrics) if metrics else None
     text = format_metrics_message(metrics)
-    if card:
-        await update.message.reply_photo(photo=card, caption=text[:1024], parse_mode="HTML", reply_markup=main_keyboard())
-    else:
-        await update.message.reply_text(text, parse_mode="HTML", reply_markup=main_keyboard())
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=main_keyboard())
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1072,23 +1046,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Add warning to status display
             data["_stale_warning"] = True
     
-    status_card = render_status_card({
-        "online": data is not None, 
-        "issue": data.get("currentIssue") if data else None,
-        "next_issue": data.get("nextIssue") if data else None,
-        "is_stale": data.get("_stale_warning", False) if data else False
-    })
     text = format_status_message(data)
-    
-    if status_card:
-        await update.message.reply_photo(
-            photo=status_card, 
-            caption=text[:1024], 
-            parse_mode="HTML", 
-            reply_markup=main_keyboard()
-        )
-    else:
-        await update.message.reply_text(text, parse_mode="HTML", reply_markup=main_keyboard())
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=main_keyboard())
 
 
 async def filter_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1303,14 +1262,7 @@ async def check_and_send_predictions(context):
                 logger.info("Previous round #%s resolved: %s", 
                             previous_result.get("issue"), "WON" if previous_result["won"] else "LOST")
 
-        card_bytes = None
-        try:
-            card_bytes = render_forecast_card(data, previous_result)
-        except Exception as e:
-            logger.warning("Card render note: %s", e)
-
         msg_text = format_prediction_message(data, previous_result)
-        caption_txt = format_forecast_caption(data, previous_result)
         loop_time = asyncio.get_event_loop().time()
 
         for user_id in list(subscribed_users):
@@ -1320,22 +1272,12 @@ async def check_and_send_predictions(context):
             if loop_time - last_t < NOTIFICATION_COOLDOWN and previous_result is None:
                 continue
             try:
-                if card_bytes:
-                    card_bytes.seek(0)
-                    await context.bot.send_photo(
-                        chat_id=user_id,
-                        photo=card_bytes,
-                        caption=caption_txt,
-                        parse_mode="HTML",
-                        reply_markup=main_keyboard(),
-                    )
-                else:
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=msg_text,
-                        parse_mode="HTML",
-                        reply_markup=main_keyboard(),
-                    )
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=msg_text,
+                    parse_mode="HTML",
+                    reply_markup=main_keyboard(),
+                )
                 last_notification_time[user_id] = loop_time
             except Exception as e:
                 logger.warning("Send to %s failed: %s", user_id, e)
