@@ -11,7 +11,7 @@ try:
 except ImportError:
     pass
 
-from sqlalchemy.pool import NullPool
+
 
 # Use the supplied environment configuration.  On AWS this is injected by
 # systemd from /etc/win/win.env; local development may use backend/.env.
@@ -34,9 +34,9 @@ if DATABASE_URL:
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
     engine = create_engine(
-
         DATABASE_URL,
-        poolclass=NullPool,
+        pool_size=10,
+        max_overflow=20,
 
         pool_pre_ping=True,
         connect_args={
