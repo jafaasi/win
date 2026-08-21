@@ -799,7 +799,7 @@ def format_status_message(data: Optional[dict]) -> str:
     issue_status = "✅ Synchronized"
     if online and current_issue and next_issue:
         try:
-            if str(next_issue) <= str(current_issue):
+            if int(next_issue) <= int(current_issue):
                 issue_status = "🔄 Refreshing..."
         except Exception:
             issue_status = "❓ Unknown"
@@ -872,7 +872,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_issue = prediction_data.get("currentIssue")
         next_issue = prediction_data.get("nextIssue")
         
-        if not current_issue or not next_issue or str(next_issue) <= str(current_issue):
+        if not current_issue or not next_issue or int(next_issue) <= int(current_issue):
             logger.warning("/start: Stale or incomplete prediction data detected")
             # Invalidate cache
             global last_prediction_issue, last_prediction
@@ -934,7 +934,7 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Validate invariant: nextIssue MUST be > currentIssue
     try:
-        if str(next_issue) <= str(current_issue):
+        if int(next_issue) <= int(current_issue):
             logger.error(
                 "/predict: STALE PREDICTION DETECTED - nextIssue (%s) <= currentIssue (%s)",
                 next_issue, current_issue
@@ -1033,7 +1033,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not current_issue or not next_issue:
             logger.warning("/status: Missing issue numbers in API response")
-        elif str(next_issue) <= str(current_issue):
+        elif int(next_issue) <= int(current_issue):
             logger.error("/status: STALE DATA - nextIssue (%s) <= currentIssue (%s)", 
                         next_issue, current_issue)
             # Add warning to status display
@@ -1079,6 +1079,34 @@ async def unsubscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(premium_help_message(), parse_mode="HTML", reply_markup=main_keyboard())
+
+
+async def debugstate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /debugstate - Instantly dumps the raw issue synchronization state to detect stale pipelines.
+    """
+    data = await get_prediction()
+    if not data:
+        await update.message.reply_text("<b>Debug State:</b> API Offline or returning STALE", parse_mode="HTML")
+        return
+        
+    current = data.get("currentIssue", "UNKNOWN")
+    target = data.get("nextIssue", "UNKNOWN")
+    created = data.get("predictionCreatedAt", "UNKNOWN")
+    gen = data.get("generation", "UNKNOWN")
+    is_fresh = "VALID" if (current != "UNKNOWN" and target != "UNKNOWN" and int(target) > int(current)) else "STALE"
+    
+    text = f"""
+<b>🛠️ SYSTEM DEBUG STATE</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+<b>Latest actual issue:</b> <code>{current}</code>
+<b>Prediction target issue:</b> <code>{target}</code>
+<b>Cached target issue:</b> <code>{last_prediction_issue}</code>
+<b>Prediction created:</b> <code>{created}</code>
+<b>Generation:</b> <code>{gen}</code>
+<b>Freshness:</b> <b>{is_fresh}</b>
+"""
+    await update.message.reply_text(text.strip(), parse_mode="HTML", reply_markup=main_keyboard())
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1203,7 +1231,7 @@ async def check_and_send_predictions(context):
         
         # Validate invariant: nextIssue MUST be > currentIssue
         try:
-            if str(next_issue) <= str(current_issue):
+            if int(next_issue) <= int(current_issue):
                 logger.error("INVARIANT VIOLATION: nextIssue (%s) <= currentIssue (%s)", 
                             next_issue, current_issue)
                 # Invalidate stale cache and force refresh
@@ -1344,6 +1372,7 @@ async def main():
     app.add_handler(CommandHandler("models",      models_command))
     app.add_handler(CommandHandler("stats",       stats_command))
     app.add_handler(CommandHandler("status",      status_command))
+    app.add_handler(CommandHandler("debugstate",  debugstate_command))
     app.add_handler(CommandHandler("filter",      filter_command))
     app.add_handler(CommandHandler("settings",    filter_command))
     app.add_handler(CommandHandler("help",        help_command))

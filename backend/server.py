@@ -102,8 +102,12 @@ def get_api_state():
         try:
             prediction = json.loads(live_state.synaptic_weights)
             
-            # Get the latest actual result from Draw table
-            latest_draw = db.query(Draw).order_by(Draw.issue_number.desc()).first()
+            # Get the latest actual result from Draw table using numeric-safe string sorting
+            from sqlalchemy import func
+            latest_draw = db.query(Draw).order_by(
+                func.length(Draw.issue_number).desc(),
+                Draw.issue_number.desc()
+            ).first()
             
             if latest_draw:
                 latest_actual_issue = str(latest_draw.issue_number)
@@ -112,8 +116,8 @@ def get_api_state():
                 # CRITICAL VALIDATION: Prediction target MUST be > latest actual issue
                 if prediction_target and latest_actual_issue:
                     try:
-                        # Compare as strings (works for same-length issue numbers)
-                        if str(prediction_target) <= str(latest_actual_issue):
+                        # Compare as integers to prevent string sorting bugs (e.g., '10' < '9')
+                        if int(prediction_target) <= int(latest_actual_issue):
                             logger.warning(
                                 "STALE PREDICTION DETECTED: nextIssue=%s <= latest_actual=%s",
                                 prediction_target, latest_actual_issue

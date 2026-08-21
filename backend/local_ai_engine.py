@@ -75,8 +75,12 @@ def run_local_engine():
         try:
             db = SessionLocal()
 
-            # Check for the latest draw from the cloud scraper
-            latest_draw = db.query(Draw).order_by(Draw.issue_number.desc()).first()
+            from sqlalchemy import func
+            # Check for the latest draw from the cloud scraper using numeric-safe sort
+            latest_draw = db.query(Draw).order_by(
+                func.length(Draw.issue_number).desc(),
+                Draw.issue_number.desc()
+            ).first()
 
             if latest_draw:
                 latest_issue = str(latest_draw.issue_number)
@@ -114,7 +118,10 @@ def run_local_engine():
                     if outcomes_list:
                         history = [int(o.digit) for o in reversed(outcomes_list)]
                     else:
-                        db_draws = db.query(Draw).order_by(Draw.issue_number.desc()).limit(50000).all()
+                        db_draws = db.query(Draw).order_by(
+                            func.length(Draw.issue_number).desc(),
+                            Draw.issue_number.desc()
+                        ).limit(50000).all()
                         if db_draws:
                             history = [int(d.number) for d in reversed(db_draws)]
                         else:
