@@ -140,6 +140,10 @@ async def get_prediction() -> Optional[dict]:
                 )
                 return None  # Force regeneration
             
+            # Allow offline status to pass through for UI alerts
+            if data and data.get("status") == "offline":
+                return data
+                
             # Check for other error states
             if data and data.get("error"):
                 logger.warning("API returned error: %s", data.get("error"))
